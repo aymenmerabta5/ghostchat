@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (2026-10-22)
+## 0.1.0 (2026-11-18)
 
 First public release of ghostchat 🧙‍♀️, an independent Windows and Linux client for the bitchat Bluetooth mesh. Not official, and not affiliated with the bitchat project.
 
