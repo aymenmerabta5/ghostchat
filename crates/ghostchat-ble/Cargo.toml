@@ -1,0 +1,25 @@
+[package]
+name = "ghostchat-ble"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "BLE central (btleplug) and optional peripheral role"
+publish = false
+
+[dependencies]
+ghostchat-protocol.workspace = true
+async-trait.workspace = true
+btleplug.workspace = true
+futures.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+bluer = { version = "0.17", features = ["bluetoothd"] }

@@ -1,0 +1,20 @@
+[package]
+name = "ghostchat-protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "BitChat-compatible binary wire protocol for ghostchat"
+publish = false
+
+[dependencies]
+chacha20poly1305.workspace = true
+ed25519-dalek.workspace = true
+flate2.workspace = true
+hex.workspace = true
+hmac.workspace = true
+rand.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+uuid.workspace = true

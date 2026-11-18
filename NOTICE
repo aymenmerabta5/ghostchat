@@ -1,0 +1,48 @@
+NOTICE
+======
+
+ghostchat is a fork of witchat (https://github.com/BarefootJoey/witchat), a
+Rust desktop client for the bitchat mesh protocol.
+
+witchat is licensed under the MIT License. Its copyright notice is preserved
+verbatim in LICENSE.
+
+    MIT License
+
+    Copyright (c) 2026 witchat contributors
+
+The protocol implemented by this project - packet framing, Noise sessions,
+private messages, the BLE GATT transport, gossip sync, files, and the private
+group wire format added in `crates/ghostchat-protocol/src/group.rs` - is
+derived from bitchat, the reference implementation by Jack (https://bitchat.free,
+https://github.com/permissionlesstech/bitchat), which is released into the
+public domain under the Unlicense:
+
+    This is free and unencumbered software released into the public domain.
+
+    Anyone is free to copy, modify, publish, use, compile, sell, or distribute
+    this software, either in source code form or as a compiled binary, for any
+    purpose, commercial or non-commercial, and by any means.
+
+    In jurisdictions that recognize copyright laws, the author or authors of
+    this software dedicate any and all copyright interest in the software to
+    the public domain. We make this dedication for the benefit of the public at
+    large and to the detriment of our heirs and successors. We intend this
+    dedication to be an overt act of relinquishment in perpetuity of all present
+    and future rights to this software under copyright law.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+    ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+    WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+    For more information, please refer to <https://unlicense.org>
+
+Changes in this fork: the project is renamed from witchat to ghostchat, the
+package, crate, asset and binary names are renamed, and the private group chat
+feature (`/group ...`, the `ghostchat-protocol::group` wire module, the group
+state machine in `ghostchat-core::groups`, sealed persistence in the app, and
+the sidebar/thread UI) is new work in this fork. The group wire format is
+byte-compatible with the iOS bitchat implementation so the two interoperate.
