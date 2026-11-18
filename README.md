@@ -9,7 +9,7 @@
 <p></p>
 
 <p align="center"><b>Your computer joins the same nearby chat the phones are already in.</b><br>
-No account, no phone number, no install, and no server you sign up for. Independent of the official apps.</p>
+No account, no phone number, no sign-up, and no server of your own to run. Independent of the official apps.</p>
 
 <p align="center"><img src="docs/ghostchat_hero2.png" width="820" alt="ghostchat on a desktop monitor, mesh chat open"></p>
 
@@ -52,15 +52,22 @@ The internet connection is the other path, and each conversation picks one. When
 - 🧅 **Opt-in Tor** for every relay connection, fail-closed.
 - 🖥️ **Desktop comforts:** keeps running in the tray, notifications that never show message text, slash commands with completion.
 - 🛡️ **Safety:** QR and fingerprint verification, `/block`, triple-click panic wipe.
-- 📦 **Unzip and run:** no setup program. Your identity stays in your user account, so replacing the folder keeps your keys.
+- 📦 **Install or unzip:** a per-user Windows setup, a Linux `.deb`, or a portable folder. Your identity stays in your user account, so upgrades keep your keys.
 - 🔐 **Trustworthy builds:** SHA-256, a provenance JSON and third-party notices beside the program. MIT licensed.
 - ⚠️ **First start on Windows:** the browser and SmartScreen say the publisher is unknown. That is expected for this unsigned build. Check the hash, then continue. Do not turn Defender off.
 
 ## 📥 Download
 
-Get `ghostchat-<version>-windows-x86_64.zip` or `ghostchat-<version>-linux-x86_64.tar.gz` from [Releases](../../releases). Unzip the folder and run the program inside it. This release has no setup program: nothing is written to Program Files, and there is no uninstall entry. Put the folder in Downloads, on the desktop, or on a USB stick. Delete the folder when you want the program gone.
+Every release carries an installer and a portable download for both systems, from [Releases](../../releases):
 
-Your keys, favorites, and settings stay with your user account, so a newer zip does not reset them and a copy of the folder does not carry them to another computer. On Windows that is `%APPDATA%\ghostchat`. On Linux it is `~/.local/share/ghostchat`. Logs sit beside that data. **Panic wipe** clears it. **Start at login** is off until you turn it on; that setting is what adds a startup entry. More on the keys: [Honest limits](#honest-limits).
+- **Windows setup:** `ghostchat-<tag>-windows-x86_64-setup.exe`. Installs for your account only, under `%LOCALAPPDATA%\Programs\ghostchat`, with Start Menu shortcuts and an entry in **Settings → Apps**. No administrator prompt.
+- **Windows portable:** `ghostchat-<tag>-windows-x86_64.zip`. Unzip and run `ghostchat.exe`; delete the folder when you want it gone.
+- **Linux `.deb`:** `ghostchat_<version>_amd64.deb`. `sudo apt install ./ghostchat_<version>_amd64.deb`, or double-click it, then start **ghostchat** from the applications menu.
+- **Linux portable:** `ghostchat-<tag>-linux-x86_64.tar.gz`. Unpack it and run `./ghostchat`.
+
+Closing the window leaves ghostchat running in the notification area, whether it came from an installer or a folder. Open it again from the tray icon; **Quit** there is what stops it. Settings → NOTIFICATIONS can make the close button quit instead.
+
+Your keys, favorites, and settings stay with your user account, so a newer install does not reset them and a copy of the folder does not carry them to another computer. On Windows that is `%APPDATA%\ghostchat`. On Linux it is `~/.local/share/ghostchat`. Uninstalling keeps that folder on purpose; remove it yourself if you want the identity gone. Logs sit beside that data. **Panic wipe** clears it. **Start at login** is off until you turn it on; that setting is what adds a startup entry. More on the keys: [Honest limits](#honest-limits).
 
 The Windows exe is unsigned. Each archive carries a `.sha256`, a provenance `.json` (git commit, compiler, build time) and `THIRD-PARTY-NOTICES.txt`. What changed and what is known not to work yet: [CHANGELOG.md](CHANGELOG.md).
 
@@ -77,7 +84,7 @@ Trust the file when its hash matches this Release, and only then. A match means 
 5. A blue window titled "Windows protected your PC" is SmartScreen. The publisher line says unknown. Click **More info**, confirm the name is `ghostchat.exe`, then **Run anyway**. Windows remembers that file, so the next start is quiet.
 6. A toast that says "Risky action blocked", or a window that says "Access is denied", usually means the folder is on the Desktop or inside OneDrive. Defender's ransomware rule is blocking an unsigned program from writing there. Open **Windows Security → Protection history**, select that event, and choose **Allow on device**. Then start `ghostchat.exe` again from File Explorer. If it still will not start, the remaining clicks are in [docs/WINDOWS.md](docs/WINDOWS.md#defender-risky-action-blocked--access-is-denied).
 
-- **Linux:** needs BlueZ. There is no publisher dialog. `tar -xzf ghostchat-*.tar.gz && sha256sum -c ghostchat.sha256` prints OK, then `./ghostchat`. Notes: [docs/LINUX.md](docs/LINUX.md).
+- **Linux:** needs BlueZ. There is no publisher dialog. `sudo apt install ./ghostchat_<version>_amd64.deb` installs it with a menu entry, or unpack the portable tarball and run `./ghostchat` after `sha256sum -c ghostchat.sha256`. Notes: [docs/LINUX.md](docs/LINUX.md).
 
 ## Quick start
 
@@ -93,7 +100,7 @@ Official bitchat is iOS, macOS, and Android. A PC still cannot join that mesh wi
 
 Other desktop work: [BitChat Desktop](https://github.com/youhanasheriff/bitchat-desktop) is a restyled official **Mac** app; its Windows/Linux builds are Bluetooth scan-only. [bitchat-tui](https://github.com/E8EgsqUO/bitchat-tui) is a terminal client. [zakkeasterbrook/bitchat-windows](https://github.com/zakkeasterbrook/bitchat-windows) is a 90-line UDP console.
 
-Ghostchat is a working Windows/Linux messenger: iced desktop GUI, a folder you unzip and run, and an auditable Rust protocol crate. It follows the official apps rather than leading them: no wire changes of its own, and privacy changes only once both official platforms ship them.
+Ghostchat is a working Windows/Linux messenger: iced desktop GUI, installers and a folder you unzip and run, and an auditable Rust protocol crate. It follows the official apps rather than leading them: no wire changes of its own, and privacy changes only once both official platforms ship them.
 
 ## Features
 
@@ -184,7 +191,7 @@ cargo test --workspace
 cargo build -p ghostchat-app --release
 ```
 
-Release binary: `target/release/ghostchat.exe` (Windows) or `target/release/ghostchat` (Linux). Packaging writes the same unzip-and-run folder as the Releases page: `powershell -File scripts/build-windows.ps1` or `bash scripts/build-linux.sh`. If PowerShell says `cargo` is not recognized, run `. .\scripts\use-rust.ps1` first.
+Release binary: `target/release/ghostchat.exe` (Windows) or `target/release/ghostchat` (Linux). `powershell -File scripts/build-windows.ps1` and `bash scripts/build-linux.sh` write the same portable folders as the Releases page; `packaging/windows/build-installer.ps1` and `packaging/linux/build-deb.sh` turn them into the setup `.exe` and the `.deb`. If PowerShell says `cargo` is not recognized, run `. .\scripts\use-rust.ps1` first.
 
 Command-line flags:
 

@@ -9,6 +9,7 @@ First public release of ghostchat 🧙‍♀️, an independent Windows and Linu
 - A real mesh peer: `#mesh`, relaying with the same timing and TTL rules as iOS, fragments and gossip sync. Ghostchat connects out to phones and, where the adapter allows it, lets phones connect in.
 - Private messages with Noise end-to-end encryption, delivered and read receipts, a 24 h encrypted outbox, a Nostr fallback for mutual favorites, and a sealed copy a trusted peer can carry when no relay has accepted the message.
 - Location channels, files and voice notes, opt-in Tor, the tray, notifications that never show message text, QR verification and a panic wipe.
+- A per-user Windows setup, a Linux `.deb`, and portable zip/tarball downloads. Closing the window hides ghostchat in the notification area; **Quit** on the tray icon is what stops it.
 - `ghostchat --relay`: a headless relay node for a PC or Linux box left on.
 - The full list is in [README.md](README.md#features).
 
@@ -27,6 +28,6 @@ More limits, unchanged between releases: [README.md](README.md#honest-limits).
 
 **Check your download**
 
-- The archive: its hash is in `SHA256SUMS.txt` on this release page.
+- The archive or installer: its hash is in `SHA256SUMS.txt` on this release page.
 - Windows: `Get-FileHash ghostchat.exe` must match `ghostchat.exe.sha256`.
-- Linux: `sha256sum -c ghostchat.sha256`.
+- Linux: `sha256sum -c ghostchat.sha256`, or compare the `.deb` with its line in `SHA256SUMS.txt` and check `dpkg -s ghostchat` after installing it.

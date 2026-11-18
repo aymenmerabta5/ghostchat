@@ -1,3 +1,9 @@
+// The window app is a GUI binary on Windows: no console window opens behind
+// it. Command-line modes (`--diag`, `--scan`, `--relay`, `--geohash`, ...)
+// still print into the terminal that started them: `console_attach` attaches
+// to that console and reopens the standard streams before clap runs.
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod app_dirs;
 mod autostart;
 mod ble_held;
@@ -6,6 +12,7 @@ mod camera;
 mod carried;
 mod cli;
 mod commands;
+mod console_attach;
 mod console_stop;
 mod diag;
 mod diagnostics;
@@ -122,6 +129,8 @@ struct Args {
 }
 
 fn main() -> Result<()> {
+    // Before clap: `--help` prints through this console.
+    let console = console_attach::attach_to_parent_console();
     let args = Args::parse();
     if args.relay {
         app_dirs::use_profile(relay_mode::PROFILE);
@@ -184,6 +193,10 @@ fn main() -> Result<()> {
         return cli::run_scan_cli(radio, args.nick);
     }
     autostart::refresh();
+    // The window needs no terminal; give the shell its console back.
+    if let Some(console) = console {
+        console.detach();
+    }
     ui::run_gui(radio, args.nick, args.background)
 }
 

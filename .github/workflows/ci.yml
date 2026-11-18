@@ -24,11 +24,25 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: cargo build -p ghostchat-app --release
+      - name: Assert the Windows build opens no console window
+        shell: pwsh
+        run: |
+          $bytes = [IO.File]::ReadAllBytes('target/release/ghostchat.exe')
+          $pe = [BitConverter]::ToInt32($bytes, 0x3C)
+          $subsystem = [BitConverter]::ToUInt16($bytes, $pe + 0x5C)
+          if ($subsystem -ne 2) { throw "ghostchat.exe is PE subsystem $subsystem; 2 (GUI) expected" }
       - run: cargo run -q -p ghostchat-xtask -- dist target/release/ghostchat.exe dist/windows
+      - name: Build the Windows installer
+        shell: pwsh
+        run: |
+          if (-not (Get-Command makensis.exe -ErrorAction SilentlyContinue)) {
+            choco install nsis --yes --no-progress
+          }
+          ./packaging/windows/build-installer.ps1 -Dist dist/windows -Out dist
       - uses: actions/upload-artifact@v7
         with:
           name: ghostchat-windows
-          path: dist/windows/
+          path: dist/
 
   test-linux:
     runs-on: ubuntu-latest
@@ -37,12 +51,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev
+      - run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev dpkg-dev
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: cargo build -p ghostchat-app --release
       - run: cargo run -q -p ghostchat-xtask -- dist target/release/ghostchat dist/linux
       - run: cd dist/linux && sha256sum -c ghostchat.sha256
+      - name: Build and install the Debian package
+        run: |
+          bash packaging/linux/build-deb.sh
+          sudo dpkg -i dist/ghostchat_*.deb
+          ghostchat --help >/dev/null
+          sudo dpkg -r ghostchat
+          cp dist/ghostchat_*.deb dist/linux/
       - uses: actions/upload-artifact@v7
         with:
           name: ghostchat-linux

@@ -1,0 +1,13 @@
+[Unit]
+Description=ghostchat mesh relay (no window)
+Documentation=https://github.com/aymenmerabta5/ghostchat/blob/main/docs/LINUX.md
+After=bluetooth.target network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/ghostchat --relay
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

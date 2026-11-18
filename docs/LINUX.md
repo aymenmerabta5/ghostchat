@@ -19,13 +19,28 @@ sudo usermod -aG bluetooth "$USER"
 
 ghostchat scans for and connects to phones, and also publishes the bitchat GATT service through BlueZ (`GattManager1` + `LEAdvertisingManager1`) so phones can connect to the PC. The status line reads `advertising bitchat service via BlueZ…` or `central-only: <reason>` (adapter off, no advertising support, or a D-Bus policy refusal). A phone that connects in logs `phone writing to our GATT server` and `phone subscribed to our GATT server`; BlueZ notifies all such phones together, so they share one `in:bluez` link. `--no-advertise` turns it off. This is built and compiles in CI but has not been run against a phone on a real Linux desktop yet. The independent [BitChat Desktop](https://github.com/youhanasheriff/bitchat-desktop) Linux preview is GTK4 discovery only; it does not message. Ghostchat on Linux is the iced messenger from this repo, not that scanner.
 
-The public download is this portable binary in a `.tar.gz`, with `ghostchat.sha256` beside it, shipped in the same release as the Windows zip. Unzip and run it; there is no distro package. Copying the folder to a USB stick does not replace the checksum.
+## Install
+
+Two Linux downloads on [Releases](../../releases):
+
+- **`.deb` package:** `sudo apt install ./ghostchat_<version>_amd64.deb`, or double-click the file. It installs `/usr/bin/ghostchat`, a **ghostchat** entry in the applications menu, the 256 px icon, the license/provenance docs under `/usr/share/doc/ghostchat`, and a systemd user unit for the headless relay. `sudo apt remove ghostchat` uninstalls it and leaves your data in `~/.local/share/ghostchat`.
+- **Portable tarball:** `tar -xzf ghostchat-*.tar.gz && sha256sum -c ghostchat.sha256`, then `./ghostchat`. Copying the folder to a USB stick does not replace the checksum.
+
+Closing the window leaves ghostchat in the notification area when a StatusNotifier / KDE / GNOME panel host is running. Open it from the tray icon; **Quit** there stops it. Settings → NOTIFICATIONS → **keep running when closed** makes X quit instead.
 
 ## Headless relay
 
 `ghostchat --relay` relays for the mesh with no window, for a box left on. It is its own node: identity, settings and logs live in a `relay` folder under the data dir (`~/.local/share/ghostchat/relay`), so private messages to your own identity never land on a process nobody reads. While on mains power it holds a logind `idle` inhibitor (`systemd-inhibit --list` shows it); `--allow-sleep` turns that off. Every 15 minutes it logs what it did for the mesh, as counts.
 
-Run it as a user service from the repo (one line each):
+Run it as a user service. The `.deb` already installs the unit; for the portable tarball, copy the binary and the unit first.
+
+From the `.deb`:
+
+1. `systemctl --user daemon-reload && systemctl --user enable --now ghostchat-relay && systemctl --user status ghostchat-relay --no-pager`
+2. `sudo loginctl enable-linger "$USER" && loginctl show-user "$USER" -p Linger` (starts at boot without a login)
+3. `journalctl --user -u ghostchat-relay -n 50 --no-pager` (the same lines also go to `~/.local/share/ghostchat/relay/logs`)
+
+From the portable tarball:
 
 1. `mkdir -p ~/.local/bin ~/.config/systemd/user && cp dist/linux/ghostchat ~/.local/bin/ && cp scripts/ghostchat-relay.service ~/.config/systemd/user/`
 2. `systemctl --user daemon-reload && systemctl --user enable --now ghostchat-relay && systemctl --user status ghostchat-relay --no-pager`
@@ -52,7 +67,7 @@ Turn **route relays through tor** off in settings to send location channels and 
 - **Tor Browser:** quit the browser (closes port 9150).
 - **System tor:** `sudo systemctl stop tor` (until reboot), or `sudo systemctl disable --now tor` so it stays off.
 
-Closing the window leaves ghostchat in the tray when a notification-area host is running (StatusNotifier / KDE / GNOME panel). Notifications for private messages and mentions use `org.freedesktop.Notifications` and never include the message text.
+Notifications for private messages and mentions use `org.freedesktop.Notifications` and never include the message text.
 
 Identity is `identity.json` under the platform data dir. When a session Secret Service (GNOME Keyring, KWallet, KeePassXC, …) is running, the file is an envelope around ciphertext and the wrap key lives in the keyring; the 24 h DM outbox is sealed the same way. Without a keyring the identity is mode `0600` plaintext and the outbox stays in memory. Windows uses DPAPI for both.
 

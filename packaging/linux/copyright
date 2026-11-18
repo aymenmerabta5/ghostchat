@@ -1,0 +1,35 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: ghostchat
+Upstream-Contact: Aimen Merabta <aymenmerabta5@gmail.com>
+Source: https://github.com/aymenmerabta5/ghostchat
+Comment: ghostchat is a fork of witchat (https://github.com/BarefootJoey/witchat).
+ The upstream MIT copyright notice is preserved below and in LICENSE.
+
+Files: *
+Copyright: 2026 witchat contributors
+License: MIT
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included in all
+ copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ SOFTWARE.
+ .
+ The BitChat wire protocol implemented by this package is specified by the
+ bitchat reference implementation (https://github.com/permissionlesstech/bitchat)
+ and released into the public domain under the Unlicense. See NOTICE.
+
+Files: debian/*
+Copyright: 2026 Aimen Merabta <aymenmerabta5@gmail.com>
+License: MIT

@@ -24,28 +24,48 @@ jobs:
       - run: cargo test --workspace
       - run: cargo build -p ghostchat-app --release
       - run: cargo run -q -p ghostchat-xtask -- dist target/release/ghostchat.exe dist/windows
+      - name: Build the Windows installer
+        shell: pwsh
+        run: |
+          if (-not (Get-Command makensis.exe -ErrorAction SilentlyContinue)) {
+            choco install nsis --yes --no-progress
+          }
+          ./packaging/windows/build-installer.ps1 -Dist dist/windows -Out dist
+          $version = (Get-Content dist/windows/ghostchat.exe.json -Raw | ConvertFrom-Json).version
+          Move-Item "dist/ghostchat-$version-windows-x86_64-setup.exe" "ghostchat-$env:NAME-windows-x86_64-setup.exe"
       - shell: pwsh
         run: Compress-Archive -Path dist/windows/* -DestinationPath "ghostchat-$env:NAME-windows-x86_64.zip"
       - uses: actions/upload-artifact@v7
         with:
           name: release-windows
-          path: ghostchat-*.zip
+          path: |
+            ghostchat-*.zip
+            ghostchat-*-setup.exe
 
   linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev
+      - run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev dpkg-dev
       - run: cargo test --workspace
       - run: cargo build -p ghostchat-app --release
       - run: cargo run -q -p ghostchat-xtask -- dist target/release/ghostchat dist/linux
       - run: cd dist/linux && sha256sum -c ghostchat.sha256
+      - name: Build the Debian package
+        run: |
+          bash packaging/linux/build-deb.sh
+          sudo dpkg -i dist/ghostchat_*.deb
+          ghostchat --help >/dev/null
+          sudo dpkg -r ghostchat
+          cp dist/ghostchat_*.deb .
       - run: tar -C dist/linux -czf "ghostchat-$NAME-linux-x86_64.tar.gz" .
       - uses: actions/upload-artifact@v7
         with:
           name: release-linux
-          path: ghostchat-*.tar.gz
+          path: |
+            ghostchat-*.tar.gz
+            ghostchat_*.deb
 
   draft:
     needs: [windows, linux]
@@ -76,13 +96,13 @@ jobs:
             | sed -E "s#\]\((\./)?([A-Za-z][^):]*)\)#](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME/\2)#g" > NOTES.md
           test -s NOTES.md || { echo "CHANGELOG.md has no '## $VERSION' section"; exit 1; }
           cat NOTES.md
-      - run: sha256sum ghostchat-* > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - run: sha256sum ghostchat-* ghostchat_* > SHA256SUMS.txt && cat SHA256SUMS.txt
       - name: Create draft release
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
-          gh release create "${{ github.ref_name }}" ghostchat-* SHA256SUMS.txt
+          gh release create "${{ github.ref_name }}" ghostchat-* ghostchat_* SHA256SUMS.txt
           --repo "${{ github.repository }}" --draft --verify-tag
           --title "ghostchat ${{ github.ref_name }}"
           --notes-file NOTES.md
@@ -93,5 +113,6 @@ jobs:
           name: release-rehearsal
           path: |
             ghostchat-*
+            ghostchat_*
             SHA256SUMS.txt
             NOTES.md

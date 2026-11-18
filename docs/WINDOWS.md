@@ -54,13 +54,23 @@ A newly built unsigned `ghostchat.exe` in OneDrive/Desktop looks like ransomware
 This is Defender, not a broken binary.
 
 1. In the Defender toast or **Windows Security → Protection history**, open the event and choose **Actions → Allow on device** (or Allow).
-2. Do **not** start it from a PowerShell session inside an IDE (Defender can treat that host as the blocked process). In File Explorer open `dist\windows` and double-click `ghostchat.exe` (or `run-ghostchat.cmd`).
+2. Do **not** start it from a PowerShell session inside an IDE (Defender can treat that host as the blocked process). In File Explorer open `dist\windows` and double-click `ghostchat.exe`.
 3. If it still dies: **Windows Security → Virus & threat protection → Manage settings → Exclusions → Add folder**  
    the folder that holds `ghostchat.exe`, e.g. `%USERPROFILE%\Downloads\ghostchat-windows`
 4. Optional (admin PowerShell, from that folder):  
    `Add-MpPreference -AttackSurfaceReductionOnlyExclusions (Get-Location).Path`
 
-Do not turn ransomware protection off globally. Each `dist\windows\ghostchat.exe` ships with `ghostchat.exe.sha256` and `ghostchat.exe.json` (git rev, target, build time). Compare with `Get-FileHash dist\windows\ghostchat.exe` before allowing it. A per-user Setup installer is not shipped.
+Do not turn ransomware protection off globally. Each `dist\windows\ghostchat.exe` ships with `ghostchat.exe.sha256` and `ghostchat.exe.json` (git rev, target, build time). Compare with `Get-FileHash dist\windows\ghostchat.exe` before allowing it.
+
+## Install, uninstall, and the tray
+
+`ghostchat-<tag>-windows-x86_64-setup.exe` installs ghostchat for the current Windows account only. It asks for no administrator password and writes to `%LOCALAPPDATA%\Programs\ghostchat`. Setup adds a Start Menu folder and, when you tick the box, a desktop shortcut. **Settings → Apps → ghostchat → Uninstall** removes the program, or use the **Uninstall ghostchat** shortcut in the Start Menu folder. Uninstall leaves `%APPDATA%\ghostchat` in place, so a reinstall keeps your identity, favorites, and settings; delete that folder yourself to erase them.
+
+The portable zip still works. It keeps the program in its own folder and the same `%APPDATA%\ghostchat` data, and it cannot run next to another copy because both would use the one Bluetooth adapter.
+
+Closing the window hides ghostchat in the notification area; it keeps receiving and relaying. Double-click the tray icon, or choose **Open**, to bring the window back. **Quit** in that menu is the only thing that stops it. Settings → NOTIFICATIONS → **keep running when closed** turns the close-button behavior off if you would rather have X quit.
+
+The program is built as a GUI application, so it opens no console window from Explorer. Command-line modes still print into the terminal that starts them: `ghostchat --diag` works in `cmd`, and `ghostchat --diag > report.txt` writes the report. Windows PowerShell does not wait for GUI-subsystem programs, so there use `cmd /c "ghostchat --diag > report.txt"` or `Start-Process ghostchat -ArgumentList --diag -Wait`.
 
 ## Tor (opt-in)
 
@@ -168,9 +178,9 @@ Noise/Ed25519 keys live in `%APPDATA%\ghostchat\ghostchat\data\identity.json` (R
 
 ## Headless relay
 
-`ghostchat.exe --relay` relays for the mesh in a console window with no GUI, for a PC left on. It is its own node: identity, settings and logs live in a `relay` folder (`%APPDATA%\ghostchat\ghostchat\data\relay`, logs under `%LOCALAPPDATA%\ghostchat\ghostchat\data\relay\logs`), so private messages to your own identity never land on a process nobody reads. While on mains power it keeps Windows from idle sleep (`powercfg /requests` in an admin prompt lists it); `--allow-sleep` turns that off. Every 15 minutes it logs what it did for the mesh, as counts. Ctrl-C stops it.
+`ghostchat.exe --relay` relays for the mesh with no GUI, for a PC left on. Started from a terminal it keeps printing there; started at logon it runs without a window. It is its own node: identity, settings and logs live in a `relay` folder (`%APPDATA%\ghostchat\ghostchat\data\relay`, logs under `%LOCALAPPDATA%\ghostchat\ghostchat\data\relay\logs`), so private messages to your own identity never land on a process nobody reads. While on mains power it keeps Windows from idle sleep (`powercfg /requests` in an admin prompt lists it); `--allow-sleep` turns that off. Every 15 minutes it logs what it did for the mesh, as counts. Ctrl-C stops it when it was started from a terminal.
 
-Bluetooth needs your signed-in session, so start it at logon rather than as a service:
+Bluetooth needs your signed-in session, so start it at logon rather than as a service. After the setup, the path is `%LOCALAPPDATA%\Programs\ghostchat\ghostchat.exe`:
 
 1. `schtasks /Create /TN "ghostchat relay" /TR "\"C:\path\to\ghostchat.exe\" --relay" /SC ONLOGON /RL LIMITED`
 2. `schtasks /Query /TN "ghostchat relay"` (check it is listed)

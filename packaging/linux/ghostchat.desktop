@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=ghostchat
+GenericName=Mesh chat
+Comment=Private chat over the bitchat Bluetooth mesh
+Exec=ghostchat
+Icon=ghostchat
+Terminal=false
+Categories=Network;Chat;InstantMessaging;
+Keywords=bitchat;bluetooth;mesh;chat;offline;
+StartupNotify=true
+StartupWMClass=ghostchat
+X-GNOME-UsesNotifications=true
