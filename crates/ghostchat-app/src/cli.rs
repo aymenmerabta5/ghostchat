@@ -156,6 +156,10 @@ fn print_event(event: &UiEvent) {
             let short: String = group.chars().take(8).collect();
             println!("[group {short}] {}: {}", line.from, line.content);
         }
+        UiEvent::GroupFile { group, line, path, .. } => {
+            let short: String = group.chars().take(8).collect();
+            println!("[group {short} file] {}: {} ({})", line.from, line.content, path.display());
+        }
         UiEvent::GroupNotice { text, .. } => println!("{text}"),
         UiEvent::GroupOpened { name, .. } => println!("* group #{name}"),
         UiEvent::Groups(list) => {

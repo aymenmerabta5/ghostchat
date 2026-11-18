@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Private groups can now carry images, voice notes and files, up to 1 MiB each. Attachments travel as chunks inside ordinary signed, encrypted group messages, so iOS clients in the group remain compatible and show the caption as text while ghostchat reassembles and saves the file. Partial files expire after 10 minutes without a new chunk, with one notice, and a chunked group file reports one continuous 0-100% progress line.
+
 ## 0.1.0 (2026-11-18)
 
 First public release of ghostchat 🧙‍♀️, an independent Windows and Linux client for the bitchat Bluetooth mesh. Not official, and not affiliated with the bitchat project.

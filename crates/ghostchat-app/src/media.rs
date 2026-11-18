@@ -123,7 +123,7 @@ fn clean_path(path: &str) -> PathBuf {
 
 /// Photos and voice notes are shown, not named (iOS hides their generated
 /// names); documents keep the name so the user knows what they are opening.
-fn caption(kind: MediaKind, path: &Path, bytes: usize) -> String {
+pub(crate) fn caption(kind: MediaKind, path: &Path, bytes: usize) -> String {
     let size = human_size(bytes);
     match kind {
         MediaKind::File => {
@@ -145,7 +145,7 @@ fn ios_style_name(ext: &str) -> Option<String> {
     Some(format!("img_{stamp}_{}.jpg", uuid::Uuid::new_v4().to_string().to_uppercase()))
 }
 
-fn load_outgoing(path: &Path, rename: Option<fn(&str) -> Option<String>>) -> Result<FilePacket> {
+pub(crate) fn load_outgoing(path: &Path, rename: Option<fn(&str) -> Option<String>>) -> Result<FilePacket> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default();
     let Some(mime) = mime_for_extension(ext) else {
         bail!("only {} files can be sent", SENDABLE_EXTENSIONS.join(", "));
@@ -167,15 +167,27 @@ fn load_outgoing(path: &Path, rename: Option<fn(&str) -> Option<String>>) -> Res
 }
 
 fn save_incoming(file: &IncomingFile) -> Result<PathBuf> {
+    save_bytes(file.name.as_deref(), file.kind, file.ext, file.timestamp_ms, &file.content)
+}
+
+/// Writes one validated attachment under `Downloads\ghostchat`, refusing to
+/// overwrite anything already there. Shared by mesh/DM files and group files.
+pub(crate) fn save_bytes(
+    name: Option<&str>,
+    kind: MediaKind,
+    ext: &str,
+    timestamp_ms: u64,
+    content: &[u8],
+) -> Result<PathBuf> {
     let dir = media_dir().context("no Downloads or data folder")?;
     std::fs::create_dir_all(&dir).with_context(|| format!("{}", dir.display()))?;
-    let stem = safe_stem(file.name.as_deref(), file.kind.label(), file.timestamp_ms);
+    let stem = safe_stem(name, kind.label(), timestamp_ms);
     for n in 0..1000 {
-        let name = if n == 0 { format!("{stem}.{}", file.ext) } else { format!("{stem}-{n}.{}", file.ext) };
+        let name = if n == 0 { format!("{stem}.{ext}") } else { format!("{stem}-{n}.{ext}") };
         let path = dir.join(name);
         match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(mut f) => {
-                std::io::Write::write_all(&mut f, &file.content)?;
+                std::io::Write::write_all(&mut f, content)?;
                 return Ok(path);
             }
             Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,

@@ -243,7 +243,7 @@ impl App {
             Conversation::GeoDm { cell, pubkey } => format!("private message to {}…", self.geo_dm_name(cell, pubkey)),
             Conversation::Group(id) => {
                 let name = self.group_summary(id).map(|g| g.name.clone()).unwrap_or_else(|| "the group".into());
-                format!("message #{name}…  everyone in the group reads it")
+                format!("message #{name}…  everyone in the group reads it; + sends a file")
             }
         };
         let me = text(format!("<@{}>", self.self_label())).size(15).font(BOLD).color(theme::ORANGE);
@@ -253,9 +253,9 @@ impl App {
                 .style(theme::header_bar)
                 .into();
         }
-        // Group chat v1 is text only: the wire format has no group file type.
-        let can_attach =
-            !matches!(self.selected, Conversation::Geo(_) | Conversation::GeoDm { .. } | Conversation::Group(_));
+        // Group media is chunked into normal group messages, so the + and mic
+        // work there too; only location channels have no media path.
+        let can_attach = !matches!(self.selected, Conversation::Geo(_) | Conversation::GeoDm { .. });
         let attach = button(text("+").size(18).font(BOLD))
             .on_press_maybe(can_attach.then_some(Message::PickFile))
             .padding([4, 12])
@@ -327,7 +327,10 @@ impl App {
             Conversation::Mesh => "drop to send to everyone in #mesh".to_string(),
             Conversation::Dm(id) => format!("drop to send privately to {}", self.display_name(id)),
             Conversation::Geo(_) | Conversation::GeoDm { .. } => "location chats are text only".to_string(),
-            Conversation::Group(_) => "group chat is text only in v1".to_string(),
+            Conversation::Group(id) => {
+                let name = self.group_summary(id).map(|g| g.name.clone()).unwrap_or_else(|| "this group".into());
+                format!("drop to send to everyone in #{name}")
+            }
         };
         container(text(label).size(16).color(theme::GREEN)).center(Length::Fill).style(theme::badge_outline).into()
     }

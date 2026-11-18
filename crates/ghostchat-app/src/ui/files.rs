@@ -18,8 +18,8 @@ pub(super) enum SlashKey {
 
 impl App {
     pub(super) fn pick_file(&mut self) -> Task<Message> {
-        if matches!(self.selected, Conversation::Geo(_)) {
-            self.set_error("location channels are text only (as on iOS)".into());
+        if matches!(self.selected, Conversation::Geo(_) | Conversation::GeoDm { .. }) {
+            self.set_error("location chats are text only (as on iOS)".into());
             return Task::none();
         }
         Task::perform(pick(), Message::FilePicked)
@@ -31,8 +31,8 @@ impl App {
     }
 
     pub(super) fn start_recording(&mut self) {
-        if matches!(self.selected, Conversation::Geo(_)) {
-            self.set_error("location channels are text only (as on iOS)".into());
+        if matches!(self.selected, Conversation::Geo(_) | Conversation::GeoDm { .. }) {
+            self.set_error("location chats are text only (as on iOS)".into());
             return;
         }
         let Some(dir) = crate::media::media_dir() else {

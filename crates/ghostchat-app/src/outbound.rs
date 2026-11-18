@@ -51,8 +51,23 @@ struct Job {
     plan: Plan,
     /// Tell the user when no live link accepted the packet.
     report: bool,
-    /// Chat line whose send progress the UI shows.
-    progress: Option<String>,
+    /// Chat line whose send progress the UI shows, and the slice of the line
+    /// this packet is responsible for. A group file is many packets, each with
+    /// its own frame count, so one line's progress must not restart at zero for
+    /// every chunk.
+    progress: Option<ProgressTag>,
+}
+
+struct ProgressTag {
+    id: String,
+    base: u8,
+    span: u8,
+}
+
+impl ProgressTag {
+    fn whole(id: String) -> Self {
+        Self { id, base: 0, span: 100 }
+    }
 }
 
 impl Job {
@@ -131,7 +146,14 @@ impl Outbound {
 
     /// Queue a file; the UI shows progress on the chat line `line_id`.
     pub fn send_file(&self, packet: &Packet, line_id: &str) {
-        self.enqueue(packet, None, true, Some(line_id.to_string()));
+        self.enqueue(packet, None, true, Some(ProgressTag::whole(line_id.to_string())));
+    }
+
+    /// Queue one part of a file that shares `line_id` with its siblings. The
+    /// reported percentage occupies `base..base + span`, so a chunked group
+    /// file reads as one continuous transfer.
+    pub fn send_file_part(&self, packet: &Packet, line_id: &str, base: u8, span: u8) {
+        self.enqueue(packet, None, true, Some(ProgressTag { id: line_id.to_string(), base, span }));
     }
 
     /// A link came up: send what was held for one, if still fresh.
@@ -154,7 +176,7 @@ impl Outbound {
         }
     }
 
-    fn enqueue(&self, packet: &Packet, ingress: Option<&str>, report: bool, progress: Option<String>) {
+    fn enqueue(&self, packet: &Packet, ingress: Option<&str>, report: bool, progress: Option<ProgressTag>) {
         let type_name = MessageType::from_u8(packet.type_id).map_or("unknown", |t| t.as_str());
         let plan = fanout::plan(packet, &self.links().views(), ingress);
         if plan.spool {
@@ -276,11 +298,12 @@ async fn step<S: FrameSink>(sink: &S, t: &mut Transfer, evt_tx: &Sender<UiEvent>
     }
     let done = t.next >= total;
     let step_now = (t.next * PROGRESS_STEPS).checked_div(total).unwrap_or(PROGRESS_STEPS);
-    if let Some(id) = &t.job.progress {
+    if let Some(tag) = &t.job.progress {
         if step_now > t.reported_step || done {
             t.reported_step = step_now;
-            let percent = (step_now * 100 / PROGRESS_STEPS) as u8;
-            let _ = evt_tx.send(UiEvent::Progress { id: id.clone(), percent });
+            let within = (step_now * tag.span as usize / PROGRESS_STEPS) as u8;
+            let percent = tag.base.saturating_add(within).min(100);
+            let _ = evt_tx.send(UiEvent::Progress { id: tag.id.clone(), percent });
         }
     }
     if done {
@@ -354,7 +377,14 @@ mod tests {
         let task = tokio::spawn(run(sink.clone(), urgent_rx, bulk_rx, evt_tx, Default::default()));
 
         let file = packet(MessageType::FileTransfer, 40_000);
-        bulk_tx.send(Job { packet: file, plan: Plan::default(), report: true, progress: Some("f".into()) }).unwrap();
+        bulk_tx
+            .send(Job {
+                packet: file,
+                plan: Plan::default(),
+                report: true,
+                progress: Some(ProgressTag::whole("f".into())),
+            })
+            .unwrap();
         tokio::time::sleep(Duration::from_millis(20)).await;
         let ack = packet(MessageType::NoiseEncrypted, 40);
         urgent_tx.send(Job { packet: ack, plan: Plan::default(), report: false, progress: None }).unwrap();
@@ -395,5 +425,37 @@ mod tests {
         assert_eq!(progress.len(), PROGRESS_STEPS);
         assert_eq!(progress.last(), Some(&100));
         assert!(progress.windows(2).all(|w| w[0] < w[1]));
+    }
+
+    #[tokio::test]
+    async fn chunked_file_progress_spans_the_whole_line() {
+        let sink = Arc::new(Recorder::default());
+        let (_urgent_tx, urgent_rx) = unbounded_channel();
+        let (bulk_tx, bulk_rx) = unbounded_channel();
+        let (evt_tx, evt_rx) = std::sync::mpsc::channel();
+        let task = tokio::spawn(run(sink, urgent_rx, bulk_rx, evt_tx, Default::default()));
+
+        for (base, span) in [(0u8, 50u8), (50, 50)] {
+            let tag = ProgressTag { id: "g".into(), base, span };
+            let job = Job {
+                packet: packet(MessageType::GroupMessage, 40),
+                plan: Plan::default(),
+                report: false,
+                progress: Some(tag),
+            };
+            bulk_tx.send(job).unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        drop(bulk_tx);
+        task.await.unwrap();
+
+        let progress: Vec<u8> = evt_rx
+            .try_iter()
+            .filter_map(|e| match e {
+                UiEvent::Progress { percent, .. } => Some(percent),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(progress, [50, 100], "two parts report as one 0..100 transfer");
     }
 }

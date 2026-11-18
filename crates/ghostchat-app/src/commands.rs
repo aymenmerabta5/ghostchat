@@ -79,6 +79,11 @@ pub enum Command {
     GroupLeave,
     /// Broadcast a message to the current group.
     GroupSend(String),
+    /// Broadcast a local image, voice note or file to a named group.
+    GroupSendFile {
+        group: String,
+        path: String,
+    },
     /// Ask the worker for the current group list.
     GroupList,
     /// Ask the worker for the current group's roster.

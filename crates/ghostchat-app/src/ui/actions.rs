@@ -131,7 +131,7 @@ impl App {
             Conversation::Geo(_) | Conversation::GeoDm { .. } => {
                 self.set_error("location chats are text only (as on iOS)".into())
             }
-            Conversation::Group(_) => self.set_error("group chat is text only in v1 (as on iOS)".into()),
+            Conversation::Group(id) => self.send(Command::GroupSendFile { group: id, path: path.into() }),
         }
     }
 

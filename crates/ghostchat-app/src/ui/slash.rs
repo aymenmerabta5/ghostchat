@@ -7,7 +7,8 @@ use crate::inbox::Conversation;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Scope {
     Anywhere,
-    MeshOrDm,
+    /// Mesh, DM, or private group: `/send` reaches all three.
+    MeshDmOrGroup,
     Dm,
     /// A location channel or a private group: the channels `/leave` drops.
     GeoOrGroup,
@@ -17,7 +18,7 @@ impl Scope {
     fn allows(self, conv: &Conversation) -> bool {
         match self {
             Self::Anywhere => true,
-            Self::MeshOrDm => matches!(conv, Conversation::Mesh | Conversation::Dm(_)),
+            Self::MeshDmOrGroup => matches!(conv, Conversation::Mesh | Conversation::Dm(_) | Conversation::Group(_)),
             Self::Dm => matches!(conv, Conversation::Dm(_)),
             Self::GeoOrGroup => matches!(conv, Conversation::Geo(_) | Conversation::Group(_)),
         }
@@ -34,7 +35,7 @@ pub(super) struct SlashCommand {
 
 pub(super) const COMMANDS: &[SlashCommand] = &[
     cmd("/msg", "<nick> <text>", "private message someone nearby", Scope::Anywhere),
-    cmd("/send", "<path>", "send a photo, voice note or PDF (max 1 MiB)", Scope::MeshOrDm),
+    cmd("/send", "<path>", "send a photo, voice note or PDF (max 1 MiB)", Scope::MeshDmOrGroup),
     cmd("/sendvisible", "<path>", "send unencrypted to a peer without private media", Scope::Dm),
     cmd("/fav", "<nick>", "favorite: reach them over Nostr when out of range", Scope::Anywhere),
     cmd("/unfav", "<nick>", "remove a favorite", Scope::Anywhere),
@@ -111,6 +112,7 @@ mod tests {
         let group = Conversation::group("ab".repeat(16));
         assert_eq!(names("/se", &dm), ["/send", "/sendvisible"]);
         assert_eq!(names("/se", &Conversation::Mesh), ["/send"], "visible fallback is DM-only");
+        assert_eq!(names("/se", &group), ["/send"], "groups take encrypted media only");
         assert!(names("/se", &geo).is_empty(), "location channels are text only");
         assert_eq!(names("/le", &geo), ["/leave"]);
         assert_eq!(names("/le", &group), ["/leave"], "a group is left the same way");
@@ -120,8 +122,8 @@ mod tests {
         assert_eq!(names("/", &dm).len(), COMMANDS.len() - 1, "all but /leave");
         assert_eq!(
             names("/", &group).len(),
-            COMMANDS.len() - 2,
-            "a group offers everything except the two media sends"
+            COMMANDS.len() - 1,
+            "a group offers everything except the unencrypted DM fallback"
         );
     }
 

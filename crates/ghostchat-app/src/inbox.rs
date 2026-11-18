@@ -111,6 +111,11 @@ impl Inbox {
         self.push_entry(conv, line, Some(media), selected)
     }
 
+    /// A group line with an attached file, filed under the group's id.
+    pub fn push_media_in(&mut self, conv: Conversation, line: ChatLine, media: Media, selected: &Conversation) -> bool {
+        self.push_entry(conv, line, Some(media), selected)
+    }
+
     fn push_entry(
         &mut self,
         conv: Conversation,

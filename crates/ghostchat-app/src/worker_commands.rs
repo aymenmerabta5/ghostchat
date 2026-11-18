@@ -158,6 +158,7 @@ impl Worker {
             Command::GroupRemove(token) => self.group_remove(&token),
             Command::GroupLeave => self.group_leave(),
             Command::GroupSend(text) => self.group_send(&text),
+            Command::GroupSendFile { group, path } => self.group_send_file(&group, &path),
             Command::GroupList => self.group_list(),
             Command::GroupInfo => self.group_info(),
             Command::Ping(to) => match resolve_peer(&self.router, &to).and_then(|p| self.router.build_ping(&p)) {

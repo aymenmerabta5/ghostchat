@@ -14,15 +14,21 @@
 //! fire-and-flood broadcasts: no per-member acknowledgments in v1, which is why
 //! the local echo is shown as sent as soon as the packet leaves.
 
+use crate::group_media::Insert;
 use crate::mesh_worker::{send, UiEvent, Worker};
 use crate::worker_commands::resolve_peer;
 use ed25519_dalek::Signer;
 use ghostchat_core::groups::{peer_id_for_fingerprint, OpenOutcome, StateOutcome};
 use ghostchat_core::router::IncomingGroup;
 use ghostchat_core::{ChatLine, MeshRouter};
-use ghostchat_protocol::group::{GroupId, GroupMember, GroupState, MAX_MEMBERS};
-use ghostchat_protocol::PeerId;
+use ghostchat_protocol::group::{
+    GroupAttachment, GroupId, GroupMember, GroupState, MAX_ATTACHMENT_CHUNKS, MAX_ATTACHMENT_CHUNK_BYTES,
+    MAX_ATTACHMENT_MIME_BYTES, MAX_ATTACHMENT_NAME_BYTES, MAX_MEMBERS,
+};
+use ghostchat_protocol::{FilePacket, MediaKind, PeerId};
 use sha2::{Digest, Sha256};
+use std::path::PathBuf;
+use std::time::Instant;
 
 /// A creator-signed state waiting for a peer's Noise session to come up.
 pub(crate) struct PendingGroupState {
@@ -225,6 +231,99 @@ impl Worker {
         self.emit(UiEvent::GroupLine { group: group_id.hex(), line });
     }
 
+    /// Broadcasts a local image, voice note, or file to a named group as a
+    /// sequence of signed chunks. Every chunk is an ordinary group message
+    /// whose visible text is the caption, so the reference app shows a line
+    /// per chunk instead of a file and everything else still verifies.
+    pub(crate) fn group_send_file(&mut self, group: &str, path: &str) {
+        let Some(group_id) = GroupId::from_hex(group) else {
+            return self.emit(UiEvent::Error("that group id is not valid".into()));
+        };
+        let path = PathBuf::from(path.trim().trim_matches('"'));
+        let file = match crate::media::load_outgoing(&path, None) {
+            Ok(file) => file,
+            Err(err) => return self.emit(UiEvent::Error(format!("send file: {err:#}"))),
+        };
+        let Some((kind, _)) = file.validate() else {
+            return self.emit(UiEvent::Error("that file type cannot be sent".into()));
+        };
+        let mime = file.mime.clone().unwrap_or_default();
+        if mime.len() > MAX_ATTACHMENT_MIME_BYTES {
+            return self.emit(UiEvent::Error("the file type name is too long".into()));
+        }
+        let total_bytes = file.content.len();
+        let count = total_bytes.div_ceil(MAX_ATTACHMENT_CHUNK_BYTES);
+        if count == 0 || count > MAX_ATTACHMENT_CHUNKS as usize {
+            return self.emit(UiEvent::Error(format!(
+                "that file needs {count} chunks; a group file may use at most {MAX_ATTACHMENT_CHUNKS}"
+            )));
+        }
+        let digest: [u8; 8] = Sha256::digest(&file.content)[..8].try_into().expect("SHA-256 has 32 bytes");
+        let attachment_id: [u8; 8] = rand::random();
+        let name = attachment_name(file.name.as_deref(), kind);
+        let caption = crate::media::caption(kind, &path, total_bytes);
+        let timestamp_ms = ghostchat_protocol::packet::now_millis();
+        let nickname = self.router.identity.nickname.clone();
+        let signing = self.router.identity.signing_public();
+        let line_id = format!("group-file-{}-{timestamp_ms}", ghostchat_protocol::hexutil::encode(&attachment_id));
+
+        let mut sealed = Vec::with_capacity(count);
+        {
+            let Some(group) = self.groups.book().get(&group_id) else {
+                return self.emit(UiEvent::Error("that group is no longer known".into()));
+            };
+            let sign = signer(&self.router);
+            for (index, data) in file.content.chunks(MAX_ATTACHMENT_CHUNK_BYTES).enumerate() {
+                let attachment = GroupAttachment {
+                    kind,
+                    attachment_id,
+                    index: index as u16,
+                    count: count as u16,
+                    total_bytes: total_bytes as u32,
+                    digest,
+                    name: name.clone(),
+                    mime: mime.clone(),
+                    data: data.to_vec(),
+                    signature: [0u8; 64],
+                };
+                let message_id = uuid::Uuid::new_v4().to_string().to_uppercase();
+                match group.seal_attachment(
+                    &caption,
+                    &message_id,
+                    &nickname,
+                    &signing,
+                    timestamp_ms,
+                    &attachment,
+                    &sign,
+                ) {
+                    Ok(payload) => sealed.push(payload),
+                    Err(err) => return self.emit(UiEvent::Error(err.to_string())),
+                }
+            }
+        }
+
+        let chunks = sealed.len();
+        for (index, payload) in sealed.into_iter().enumerate() {
+            let packet = self.router.build_group_message(payload);
+            self.router.remember_public(&packet);
+            let base = (index * 100 / chunks) as u8;
+            let end = ((index + 1) * 100 / chunks) as u8;
+            self.out.send_file_part(&packet, &line_id, base, end - base);
+        }
+        tracing::info!(group = %group_id.hex(), bytes = total_bytes, chunks, "group file: broadcasting");
+
+        let line = ChatLine {
+            id: line_id,
+            from: nickname,
+            peer_id: None,
+            content: caption,
+            timestamp_ms,
+            is_self: true,
+            is_private: false,
+        };
+        self.emit(UiEvent::GroupFile { group: group_id.hex(), line, path, kind });
+    }
+
     pub(crate) fn group_list(&mut self) {
         let summaries = self.groups.summaries(|id| self.router.peers.is_reachable(id));
         let text = if self.groups.is_empty() {
@@ -351,9 +450,13 @@ impl Worker {
         for broadcast in broadcasts {
             let group = broadcast.envelope.group_id.hex();
             match self.groups.book_mut().open(&broadcast.envelope, now_ms) {
-                Ok(OpenOutcome::Message(message)) => {
+                Ok(OpenOutcome::Message(mut message)) => {
                     if self.blocked.contains(&message.sender.fingerprint_hex()) {
                         tracing::debug!(group = %group, "groups: message from a blocked member dropped");
+                        continue;
+                    }
+                    if let Some(chunk) = message.attachment.take() {
+                        self.on_group_attachment(group, &message.sender, message.timestamp_ms, *chunk);
                         continue;
                     }
                     let line = ChatLine {
@@ -370,6 +473,87 @@ impl Worker {
                 Ok(OpenOutcome::OwnEcho | OpenOutcome::Duplicate) => {}
                 Err(err) => tracing::debug!(group = %group, %err, "groups: broadcast dropped"),
             }
+        }
+    }
+
+    /// Feeds one verified chunk to the assembler. Only a completed file (or a
+    /// contradiction that throws one away) produces a line; a file in progress
+    /// stays invisible.
+    fn on_group_attachment(&mut self, group: String, sender: &GroupMember, timestamp_ms: u64, chunk: GroupAttachment) {
+        let nickname = sender.nickname.clone();
+        match self.group_media.insert(&group, sender.fingerprint, &nickname, chunk, timestamp_ms, Instant::now()) {
+            Insert::Pending => {}
+            Insert::Rejected => self.emit(UiEvent::GroupNotice {
+                group: Some(group),
+                text: format!("* an attachment from {nickname} was dropped: its parts did not describe the same file"),
+            }),
+            Insert::Complete(done) => self.deliver_group_attachment(*done),
+        }
+    }
+
+    /// Validates and saves a reassembled file exactly like a mesh/DM file: the
+    /// MIME allow-list and magic bytes decide the extension, never the sender's
+    /// name. The conversation gets one media line.
+    fn deliver_group_attachment(&mut self, done: crate::group_media::Assembled) {
+        let packet = FilePacket { name: Some(done.name.clone()), mime: Some(done.mime.clone()), content: done.data };
+        let Some((kind, ext)) = packet.validate() else {
+            return self.emit(UiEvent::GroupNotice {
+                group: Some(done.group),
+                text: format!(
+                    "* an attachment from {} could not be saved: unsupported or corrupt contents",
+                    done.sender_nickname
+                ),
+            });
+        };
+        if kind != done.kind {
+            return self.emit(UiEvent::GroupNotice {
+                group: Some(done.group),
+                text: format!(
+                    "* an attachment from {} could not be saved: its type did not match its contents",
+                    done.sender_nickname
+                ),
+            });
+        }
+        match crate::media::save_bytes(Some(&done.name), kind, ext, done.timestamp_ms, &packet.content) {
+            Ok(path) => {
+                let caption = crate::media::caption(kind, &path, packet.content.len());
+                let line = ChatLine {
+                    id: format!(
+                        "group-file-{}-{}",
+                        ghostchat_protocol::hexutil::encode(&done.attachment_id),
+                        done.timestamp_ms
+                    ),
+                    from: done.sender_nickname,
+                    peer_id: peer_id_for_fingerprint(&done.sender),
+                    content: caption,
+                    timestamp_ms: done.timestamp_ms,
+                    is_self: false,
+                    is_private: false,
+                };
+                self.emit(UiEvent::GroupFile { group: done.group, line, path, kind });
+            }
+            Err(err) => self.emit(UiEvent::GroupNotice {
+                group: Some(done.group),
+                text: format!("* an attachment from {} could not be saved: {err:#}", done.sender_nickname),
+            }),
+        }
+    }
+
+    /// Partial group files that aged out. Called from the worker tick, so a
+    /// file missing a chunk produces exactly one line.
+    pub(crate) fn prune_group_media(&mut self, now: Instant) {
+        for expired in self.group_media.prune(now) {
+            self.emit(UiEvent::GroupNotice {
+                group: Some(expired.group),
+                text: format!(
+                    "* {} {} from {} did not finish arriving ({}/{} parts); it may need sending again",
+                    expired.kind.label(),
+                    expired.name,
+                    expired.sender_nickname,
+                    expired.received,
+                    expired.count
+                ),
+            });
         }
     }
 
@@ -446,9 +630,27 @@ impl Worker {
     /// Panic wipe: the new identity is not a member of anything.
     pub(crate) fn clear_groups(&mut self) {
         self.groups.clear();
+        self.group_media.clear();
         self.current_group = None;
         self.pending_group_states.clear();
         self.push_groups();
+    }
+}
+
+/// A file name that fits the attachment descriptor: leaf only, no control
+/// characters, cut on a character boundary so the 96-byte field stays valid
+/// UTF-8. The receiver still treats it as a suggestion and derives the real
+/// extension from the MIME type.
+fn attachment_name(original: Option<&str>, kind: MediaKind) -> String {
+    let leaf = original.unwrap_or_default().rsplit(['/', '\\']).next().unwrap_or_default();
+    let mut name: String = leaf.chars().filter(|c| !c.is_control()).collect();
+    while name.len() > MAX_ATTACHMENT_NAME_BYTES {
+        name.pop();
+    }
+    if name.is_empty() {
+        kind.label().to_string()
+    } else {
+        name
     }
 }
 

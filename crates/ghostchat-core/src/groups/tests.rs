@@ -298,6 +298,60 @@ fn a_group_message_roundtrips_between_members() {
     assert_eq!(message.epoch, 2);
 }
 
+fn sample_chunk(index: u16, count: u16, data: &[u8]) -> GroupAttachment {
+    GroupAttachment {
+        kind: ghostchat_protocol::MediaKind::File,
+        attachment_id: [0x5A; 8],
+        index,
+        count,
+        total_bytes: 9,
+        digest: [0xAB; 8],
+        name: "notes.txt".into(),
+        mime: "text/plain".into(),
+        data: data.to_vec(),
+        signature: [0u8; 64],
+    }
+}
+
+#[test]
+fn a_group_attachment_roundtrips_between_members() {
+    let (group, state) = group_with(vec![bob()]);
+    let mut book = joined(state, BOB_FP);
+    let now = 1_700_000_000_000;
+    let chunk = sample_chunk(0, 2, b"12345");
+
+    let payload = group
+        .seal_attachment("[file] notes.txt", "msg-1", "amy", &public_of(1), now, &chunk, signer(1))
+        .expect("seals");
+    let open = book.open(&envelope_of(&payload), now).expect("opens");
+    let OpenOutcome::Message(message) = open else { panic!("not a message: {open:?}") };
+    assert_eq!(message.content, "[file] notes.txt", "the reference sees a text line");
+    let got = message.attachment.expect("the chunk survives");
+    assert_eq!(got.index, 0);
+    assert_eq!(got.count, 2);
+    assert_eq!(got.name, "notes.txt");
+    assert_eq!(got.data, b"12345");
+    assert_eq!(got.digest, [0xAB; 8]);
+}
+
+#[test]
+fn a_group_attachment_from_a_non_member_is_refused() {
+    let group = created();
+    let chunk = sample_chunk(0, 1, b"123456789");
+    // Carol signs with a key the roster does not name.
+    let refused = group.seal_attachment("[file] notes.txt", "msg-1", "carol", &public_of(3), 10, &chunk, signer(3));
+    assert!(matches!(refused, Err(GroupError::NotAMember)));
+}
+
+#[test]
+fn a_group_attachment_over_the_file_ceiling_is_refused() {
+    let group = created();
+    let mut chunk = sample_chunk(0, 1, b"123456789");
+    chunk.total_bytes = MAX_ATTACHMENT_BYTES as u32 + 1;
+    let refused = group.seal_attachment("[file] notes.txt", "msg-1", "amy", &public_of(1), 10, &chunk, signer(1));
+    assert!(matches!(refused, Err(GroupError::TooLong)));
+}
+
 #[test]
 fn our_own_broadcast_is_dropped_as_an_echo() {
     let mut group = created();

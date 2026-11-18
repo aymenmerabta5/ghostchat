@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 pub use crate::commands::{parse_command_line, Command};
@@ -117,6 +117,14 @@ pub enum UiEvent {
     GroupLine {
         group: String,
         line: ChatLine,
+    },
+    /// A group image, voice note, or file that finished reassembling (or the
+    /// local echo of one we sent).
+    GroupFile {
+        group: String,
+        line: ChatLine,
+        path: PathBuf,
+        kind: MediaKind,
     },
     /// A system line for a group (`Some`), or the mesh timeline when the
     /// notice is about groups in general.
@@ -345,6 +353,8 @@ pub(crate) struct Worker {
     pub(crate) stay_awake_wanted: bool,
     /// Creator-signed group states we belong to, persisted sealed.
     pub(crate) groups: crate::groups::Groups,
+    /// Group images, voice notes, and files part-way in.
+    pub(crate) group_media: crate::group_media::GroupMedia,
     /// The group `/group invite|remove|send` acts on, like iOS's selected group.
     pub(crate) current_group: Option<String>,
     /// State waiting for a peer's Noise session to secure.
@@ -684,6 +694,7 @@ async fn mesh_loop(
         stay_awake: Default::default(),
         stay_awake_wanted: false,
         groups: crate::groups::Groups::open_default(my_fingerprint),
+        group_media: crate::group_media::GroupMedia::default(),
         current_group: None,
         pending_group_states: Vec::new(),
     };
@@ -716,6 +727,7 @@ async fn mesh_loop(
                 w.out.prune_spool();
                 w.apply_ingest(tick);
                 w.expire_outbox();
+                w.prune_group_media(Instant::now());
             }
             _ = diag_tick.tick() => w.push_diag(),
             _ = health_tick.tick() => w.log_health(),

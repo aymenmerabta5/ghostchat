@@ -8,10 +8,18 @@
 //! state    = TLV 1 groupID | 2 name | 3 key | 4 epoch | 5 roster | 6 creator | 7 signature
 //! envelope = TLV 1 groupID | 2 epoch | 3 nonce   | 4 ciphertext||tag
 //! inner    = TLV 1 id      | 2 senderKey | 3 senderNickname | 4 timestamp | 5 content | 6 signature
+//!          | 7 attachment (optional)
 //! ```
 //!
 //! TLVs are `type(1) || length(2, big-endian) || value`. Unknown fields are
 //! ignored on decode, so a later revision can add one without a version bump.
+//!
+//! TLV 7 is an extension the reference does not know: it is ignored there, and
+//! its `content` still verifies and displays as a normal text line. Ghostchat
+//! peers read it and reassemble the file. Each chunk carries its own Ed25519
+//! signature, domain-separated from the text signature and bound to the group,
+//! epoch, message id, and timestamp, so a member cannot move another member's
+//! chunk into a different message.
 //!
 //! Two signatures are in play and they cover different things:
 //!
@@ -34,6 +42,7 @@ use rand::RngCore;
 use sha2::{Digest, Sha256};
 use std::fmt;
 
+use crate::file_packet::{MediaKind, MAX_FILE_BYTES};
 use crate::hexutil;
 
 /// Rosters are capped by the reference implementation. A signed roster naming
@@ -46,9 +55,23 @@ pub const MAX_NICKNAME_BYTES: usize = 64;
 /// The iOS command layer caps a group name at 40 characters.
 pub const MAX_NAME_CHARS: usize = 40;
 
+/// A chunk's data fits one TLV value (the 16-bit length caps it at 65 535
+/// bytes) with room for the header, signature, and the 128 KiB message limit.
+pub const MAX_ATTACHMENT_CHUNK_BYTES: usize = 60 * 1024;
+/// One file, matching the file-transfer ceiling the rest of the app uses.
+pub const MAX_ATTACHMENT_BYTES: usize = MAX_FILE_BYTES;
+/// A 1 MiB file needs 18 chunks at the size above; the cap leaves headroom
+/// for a future smaller chunk size without allowing unbounded reassembly.
+pub const MAX_ATTACHMENT_CHUNKS: u16 = 32;
+pub const MAX_ATTACHMENT_NAME_BYTES: usize = 96;
+pub const MAX_ATTACHMENT_MIME_BYTES: usize = 64;
+
 /// Domain-separation prefixes, byte-identical to the reference.
 const STATE_DOMAIN: &[u8] = b"bitchat-group-v1";
 const MESSAGE_DOMAIN: &[u8] = b"bitchat-group-msg-v1";
+const ATTACHMENT_DOMAIN: &[u8] = b"bitchat-group-file-v1";
+/// Inner TLV the reference does not know and ignores.
+const INNER_TAG_ATTACHMENT: u8 = 0x07;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum GroupError {
@@ -481,6 +504,9 @@ pub struct GroupPlaintext {
     pub sender_nickname: String,
     pub timestamp_ms: u64,
     pub content: String,
+    /// One chunk of a group image, voice note, or file, when the sender is a
+    /// ghostchat peer. `None` for ordinary text and for the reference's app.
+    pub attachment: Option<GroupAttachment>,
 }
 
 /// Bytes a sender signs. Not length-prefixed — exactly as the reference builds
@@ -502,6 +528,172 @@ pub fn message_signing_content(
     data
 }
 
+// MARK: - Group attachments (inner TLV 7, ghostchat extension)
+
+fn kind_code(kind: MediaKind) -> u8 {
+    match kind {
+        MediaKind::Image => 1,
+        MediaKind::Audio => 2,
+        MediaKind::File => 3,
+    }
+}
+
+fn kind_from_code(code: u8) -> Option<MediaKind> {
+    Some(match code {
+        1 => MediaKind::Image,
+        2 => MediaKind::Audio,
+        3 => MediaKind::File,
+        _ => return None,
+    })
+}
+
+/// One chunk of a file sent to a group.
+///
+/// The visible text stays an ordinary group line, so the reference verifies and
+/// displays `[image] 512 KB` while ghostchat peers reassemble the chunks. Every
+/// chunk is a full group message with its own signature; the signature covers
+/// the whole descriptor (kind, id, index, count, sizes, digest, name, MIME,
+/// data) plus the message id and timestamp. It is verified against the same
+/// roster-pinned sender key as the text.
+#[derive(Clone, PartialEq, Eq)]
+pub struct GroupAttachment {
+    pub kind: MediaKind,
+    /// Random per file, so chunks from two files never merge.
+    pub attachment_id: [u8; 8],
+    pub index: u16,
+    pub count: u16,
+    pub total_bytes: u32,
+    /// First 8 bytes of SHA-256 over the whole file.
+    pub digest: [u8; 8],
+    pub name: String,
+    pub mime: String,
+    pub data: Vec<u8>,
+    pub signature: [u8; 64],
+}
+
+impl fmt::Debug for GroupAttachment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GroupAttachment")
+            .field("kind", &self.kind)
+            .field("attachment_id", &hexutil::encode(&self.attachment_id))
+            .field("index", &self.index)
+            .field("count", &self.count)
+            .field("total_bytes", &self.total_bytes)
+            .field("name", &self.name)
+            .field("mime", &self.mime)
+            .field("chunk_bytes", &self.data.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl GroupAttachment {
+    fn fields_valid(count: u16, index: u16, total_bytes: u32, chunk_bytes: usize) -> bool {
+        let total = total_bytes as usize;
+        let chunk = MAX_ATTACHMENT_CHUNK_BYTES;
+        (1..=MAX_ATTACHMENT_BYTES).contains(&total)
+            && (1..=MAX_ATTACHMENT_CHUNK_BYTES).contains(&chunk_bytes)
+            && (1..=MAX_ATTACHMENT_CHUNKS).contains(&count)
+            && index < count
+            && count as usize >= total.div_ceil(chunk)
+            && total > index as usize * chunk
+    }
+
+    /// Canonical bytes the attachment signature covers, excluding the
+    /// signature itself. `decode` rebuilds exactly these bytes, so a
+    /// non-canonical encoding cannot verify.
+    pub fn descriptor(&self) -> Result<Vec<u8>, GroupError> {
+        let name = self.name.as_bytes();
+        let mime = self.mime.as_bytes();
+        if name.len() > MAX_ATTACHMENT_NAME_BYTES || mime.len() > MAX_ATTACHMENT_MIME_BYTES {
+            return Err(GroupError::ValueTooLong);
+        }
+        if !Self::fields_valid(self.count, self.index, self.total_bytes, self.data.len()) {
+            return Err(GroupError::Malformed);
+        }
+        let mut out = Vec::with_capacity(40 + name.len() + mime.len() + self.data.len());
+        out.push(1u8); // version
+        out.push(kind_code(self.kind));
+        out.extend_from_slice(&self.attachment_id);
+        out.extend_from_slice(&self.index.to_be_bytes());
+        out.extend_from_slice(&self.count.to_be_bytes());
+        out.extend_from_slice(&self.total_bytes.to_be_bytes());
+        out.extend_from_slice(&self.digest);
+        out.extend_from_slice(&(name.len() as u16).to_be_bytes());
+        out.extend_from_slice(name);
+        out.extend_from_slice(&(mime.len() as u16).to_be_bytes());
+        out.extend_from_slice(mime);
+        out.extend_from_slice(&(self.data.len() as u32).to_be_bytes());
+        out.extend_from_slice(&self.data);
+        Ok(out)
+    }
+
+    pub fn encode(&self) -> Result<Vec<u8>, GroupError> {
+        let mut value = self.descriptor()?;
+        value.extend_from_slice(&self.signature);
+        Ok(value)
+    }
+
+    /// Strict decode: every length must fit, no trailing bytes, and the chunk
+    /// sizes must describe a real file. The signature is verified by
+    /// [`open_message`] because it needs the message context.
+    pub fn decode(value: &[u8]) -> Option<Self> {
+        let signature_at = value.len().checked_sub(64)?;
+        let (descriptor, signature) = value.split_at(signature_at);
+        let signature = <[u8; 64]>::try_from(signature).ok()?;
+        let mut offset = 0usize;
+        let take = |n: usize, offset: &mut usize| -> Option<&[u8]> {
+            let end = offset.checked_add(n)?;
+            let slice = descriptor.get(*offset..end)?;
+            *offset = end;
+            Some(slice)
+        };
+        if take(1, &mut offset)?[0] != 1 {
+            return None;
+        }
+        let kind = kind_from_code(take(1, &mut offset)?[0])?;
+        let attachment_id = <[u8; 8]>::try_from(take(8, &mut offset)?).ok()?;
+        let index = u16::from_be_bytes(<[u8; 2]>::try_from(take(2, &mut offset)?).ok()?);
+        let count = u16::from_be_bytes(<[u8; 2]>::try_from(take(2, &mut offset)?).ok()?);
+        let total_bytes = u32::from_be_bytes(<[u8; 4]>::try_from(take(4, &mut offset)?).ok()?);
+        let digest = <[u8; 8]>::try_from(take(8, &mut offset)?).ok()?;
+        let name_len = u16::from_be_bytes(<[u8; 2]>::try_from(take(2, &mut offset)?).ok()?) as usize;
+        if name_len > MAX_ATTACHMENT_NAME_BYTES {
+            return None;
+        }
+        let name = std::str::from_utf8(take(name_len, &mut offset)?).ok()?.to_string();
+        let mime_len = u16::from_be_bytes(<[u8; 2]>::try_from(take(2, &mut offset)?).ok()?) as usize;
+        if mime_len == 0 || mime_len > MAX_ATTACHMENT_MIME_BYTES {
+            return None;
+        }
+        let mime = std::str::from_utf8(take(mime_len, &mut offset)?).ok()?.to_string();
+        let data_len = u32::from_be_bytes(<[u8; 4]>::try_from(take(4, &mut offset)?).ok()?) as usize;
+        let data = take(data_len, &mut offset)?.to_vec();
+        if offset != descriptor.len() || !Self::fields_valid(count, index, total_bytes, data.len()) {
+            return None;
+        }
+        Some(Self { kind, attachment_id, index, count, total_bytes, digest, name, mime, data, signature })
+    }
+
+    /// What the sender signs for one chunk. Hashing the descriptor keeps the
+    /// signed payload small without leaving any field out.
+    pub fn signing_content(
+        group_id: &GroupId,
+        epoch: u32,
+        message_id: &str,
+        timestamp_ms: u64,
+        descriptor: &[u8],
+    ) -> Vec<u8> {
+        let mut data = Vec::with_capacity(ATTACHMENT_DOMAIN.len() + GROUP_ID_LEN + 12 + message_id.len() + 32);
+        data.extend_from_slice(ATTACHMENT_DOMAIN);
+        data.extend_from_slice(&group_id.0);
+        data.extend_from_slice(&epoch.to_be_bytes());
+        data.extend_from_slice(message_id.as_bytes());
+        data.extend_from_slice(&timestamp_ms.to_be_bytes());
+        data.extend_from_slice(&sha256(descriptor));
+        data
+    }
+}
+
 /// Seals a message into the encoded `0x25` payload.
 #[allow(clippy::too_many_arguments)]
 pub fn seal_message(
@@ -517,14 +709,85 @@ pub fn seal_message(
 ) -> Result<Vec<u8>, GroupError> {
     let signing_content = message_signing_content(group_id, epoch, message_id, timestamp_ms, content);
     let signature = sign(&signing_content).ok_or(GroupError::BadSenderSignature)?;
+    seal_inner(
+        group_id,
+        epoch,
+        key,
+        message_id,
+        sender_signing_key,
+        sender_nickname,
+        timestamp_ms,
+        content,
+        &signature,
+        None,
+    )
+}
 
-    let mut inner = Vec::with_capacity(content.len() + 200);
+/// Seals a group text line carrying one attachment chunk. The text signature
+/// stays byte-identical to [`seal_message`], so a reference implementation
+/// accepts the line.
+#[allow(clippy::too_many_arguments)]
+pub fn seal_attachment(
+    group_id: &GroupId,
+    epoch: u32,
+    key: &[u8; KEY_LEN],
+    message_id: &str,
+    sender_signing_key: &[u8; 32],
+    sender_nickname: &str,
+    timestamp_ms: u64,
+    content: &str,
+    attachment: &GroupAttachment,
+    sign: impl Fn(&[u8]) -> Option<[u8; 64]>,
+) -> Result<Vec<u8>, GroupError> {
+    let text_content = message_signing_content(group_id, epoch, message_id, timestamp_ms, content);
+    let text_signature = sign(&text_content).ok_or(GroupError::BadSenderSignature)?;
+
+    let descriptor = attachment.descriptor()?;
+    let attachment_content = GroupAttachment::signing_content(group_id, epoch, message_id, timestamp_ms, &descriptor);
+    let attachment_signature = sign(&attachment_content).ok_or(GroupError::BadSenderSignature)?;
+
+    let mut value = descriptor;
+    value.extend_from_slice(&attachment_signature);
+    seal_inner(
+        group_id,
+        epoch,
+        key,
+        message_id,
+        sender_signing_key,
+        sender_nickname,
+        timestamp_ms,
+        content,
+        &text_signature,
+        Some((INNER_TAG_ATTACHMENT, &value)),
+    )
+}
+
+/// Builds the inner TLV and encrypts it. Both public sealers share this so the
+/// reference-visible bytes cannot drift apart.
+#[allow(clippy::too_many_arguments)]
+fn seal_inner(
+    group_id: &GroupId,
+    epoch: u32,
+    key: &[u8; KEY_LEN],
+    message_id: &str,
+    sender_signing_key: &[u8; 32],
+    sender_nickname: &str,
+    timestamp_ms: u64,
+    content: &str,
+    text_signature: &[u8; 64],
+    extra: Option<(u8, &[u8])>,
+) -> Result<Vec<u8>, GroupError> {
+    let extra_len = extra.as_ref().map_or(0, |(_, value)| value.len() + 3);
+    let mut inner = Vec::with_capacity(content.len() + extra_len + 200);
     put(&mut inner, 0x01, message_id.as_bytes())?;
     put(&mut inner, 0x02, sender_signing_key)?;
     put(&mut inner, 0x03, sender_nickname.as_bytes())?;
     put(&mut inner, 0x04, &timestamp_ms.to_be_bytes())?;
     put(&mut inner, 0x05, content.as_bytes())?;
-    put(&mut inner, 0x06, &signature)?;
+    put(&mut inner, 0x06, text_signature)?;
+    if let Some((tag, value)) = extra {
+        put(&mut inner, tag, value)?;
+    }
 
     let mut nonce = [0u8; 12];
     rand::thread_rng().fill_bytes(&mut nonce);
@@ -541,7 +804,8 @@ pub fn seal_message(
 }
 
 /// Opens an envelope with the epoch key: decrypts, parses the inner TLV, and
-/// verifies the sender's Ed25519 signature.
+/// verifies the sender's Ed25519 signature (and the attachment signature when
+/// inner TLV 7 is present).
 ///
 /// Roster membership of the sender is the *caller's* check — this only proves
 /// the payload was authored by `sender_signing_key`. Key possession is not
@@ -563,6 +827,7 @@ pub fn open_message(envelope: &GroupEnvelope, key: &[u8; KEY_LEN]) -> Result<Gro
     let mut timestamp_ms = None;
     let mut content = None;
     let mut signature = None;
+    let mut attachment = None;
 
     for (kind, value) in fields {
         match kind {
@@ -576,6 +841,7 @@ pub fn open_message(envelope: &GroupEnvelope, key: &[u8; KEY_LEN]) -> Result<Gro
             }
             0x05 => content = std::str::from_utf8(value).ok().map(str::to_string),
             0x06 => signature = <[u8; 64]>::try_from(value).ok(),
+            INNER_TAG_ATTACHMENT => attachment = Some(GroupAttachment::decode(value).ok_or(GroupError::Malformed)?),
             _ => {}
         }
     }
@@ -590,10 +856,23 @@ pub fn open_message(envelope: &GroupEnvelope, key: &[u8; KEY_LEN]) -> Result<Gro
     let signing_content =
         message_signing_content(&envelope.group_id, envelope.epoch, &message_id, timestamp_ms, &content);
     let verifying = VerifyingKey::from_bytes(&sender_signing_key).map_err(|_| GroupError::BadSenderSignature)?;
-    let signature = Signature::from_slice(&signature).map_err(|_| GroupError::BadSenderSignature)?;
-    verifying.verify(&signing_content, &signature).map_err(|_| GroupError::BadSenderSignature)?;
+    let text_signature = Signature::from_slice(&signature).map_err(|_| GroupError::BadSenderSignature)?;
+    verifying.verify(&signing_content, &text_signature).map_err(|_| GroupError::BadSenderSignature)?;
 
-    Ok(GroupPlaintext { message_id, sender_signing_key, sender_nickname, timestamp_ms, content })
+    if let Some(chunk) = &attachment {
+        let descriptor = chunk.descriptor().map_err(|_| GroupError::Malformed)?;
+        let attachment_content = GroupAttachment::signing_content(
+            &envelope.group_id,
+            envelope.epoch,
+            &message_id,
+            timestamp_ms,
+            &descriptor,
+        );
+        let chunk_signature = Signature::from_slice(&chunk.signature).map_err(|_| GroupError::BadSenderSignature)?;
+        verifying.verify(&attachment_content, &chunk_signature).map_err(|_| GroupError::BadSenderSignature)?;
+    }
+
+    Ok(GroupPlaintext { message_id, sender_signing_key, sender_nickname, timestamp_ms, content, attachment })
 }
 
 #[cfg(test)]

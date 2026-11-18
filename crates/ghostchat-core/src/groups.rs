@@ -31,7 +31,8 @@
 use std::collections::{BTreeMap, HashSet, VecDeque};
 
 use ghostchat_protocol::group::{
-    GroupEnvelope, GroupError as WireError, GroupId, GroupMember, GroupState, KEY_LEN, MAX_MEMBERS, MAX_NAME_CHARS,
+    GroupAttachment, GroupEnvelope, GroupError as WireError, GroupId, GroupMember, GroupState, KEY_LEN,
+    MAX_ATTACHMENT_BYTES, MAX_MEMBERS, MAX_NAME_CHARS,
 };
 use ghostchat_protocol::{Packet, PeerId};
 
@@ -259,6 +260,44 @@ impl Group {
         )?)
     }
 
+    /// Seals one chunk of an image, voice note, or file, with the visible
+    /// fallback text the reference displays. The caller chunks the bytes; this
+    /// only enforces the file ceiling and roster membership.
+    #[allow(clippy::too_many_arguments)]
+    pub fn seal_attachment(
+        &self,
+        content: &str,
+        message_id: &str,
+        nickname: &str,
+        my_signing_public: &[u8; 32],
+        timestamp_ms: u64,
+        attachment: &GroupAttachment,
+        sign: impl Fn(&[u8]) -> Option<[u8; 64]>,
+    ) -> Result<Vec<u8>, GroupError> {
+        if content.chars().count() > MAX_MESSAGE_CHARS {
+            return Err(GroupError::TooLong);
+        }
+        if attachment.total_bytes as usize > MAX_ATTACHMENT_BYTES {
+            return Err(GroupError::TooLong);
+        }
+        let member = self.state.member_by_signing_key(my_signing_public).ok_or(GroupError::NotAMember)?;
+        if member.fingerprint != self.my_fingerprint {
+            return Err(GroupError::NotAMember);
+        }
+        Ok(ghostchat_protocol::group::seal_attachment(
+            &self.state.group_id,
+            self.state.epoch,
+            &self.state.key,
+            message_id,
+            my_signing_public,
+            nickname,
+            timestamp_ms,
+            content,
+            attachment,
+            sign,
+        )?)
+    }
+
     /// Decrypts and authenticates an envelope, then applies the receive-time
     /// rules. `now_ms` clamps a peer's future clock.
     pub fn open(&mut self, envelope: &GroupEnvelope, now_ms: u64) -> Result<OpenOutcome, GroupError> {
@@ -282,6 +321,7 @@ impl Group {
             message_id: plaintext.message_id,
             sender: sender.clone(),
             content: plaintext.content,
+            attachment: plaintext.attachment.map(Box::new),
             timestamp_ms: plaintext.timestamp_ms.min(now_ms),
             epoch: envelope.epoch,
         }))
@@ -375,6 +415,8 @@ pub struct OpenedMessage {
     pub message_id: String,
     pub sender: GroupMember,
     pub content: String,
+    /// One chunk of a group attachment, when a ghostchat peer sent one.
+    pub attachment: Option<Box<GroupAttachment>>,
     /// Authenticated, then clamped to the local clock if it was in the future.
     pub timestamp_ms: u64,
     pub epoch: u32,

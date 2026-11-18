@@ -20,6 +20,7 @@ mod fanout;
 mod geo_dm;
 mod geo_lab;
 mod geo_link;
+mod group_media;
 mod groups;
 mod history;
 mod identity_store;

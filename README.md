@@ -48,7 +48,7 @@ The internet connection is the other path, and each conversation picks one. When
 - 🔒 **Private messages:** Noise XX end to end, delivered and read receipts. Undelivered messages wait in an encrypted outbox for up to 24 h and are resent when the person is back; meanwhile nearby trusted peers can carry a sealed copy to them, and ghostchat carries theirs.
 - ⭐ **Favorites over the internet:** mutual favorites keep chatting over Nostr, gift-wrapped like iOS.
 - 📍 **Location channels:** block-to-region geohash channels, people lists, teleport, and private messages to people there.
-- 📎 **Files and voice:** photos, voice notes and PDFs, encrypted in private chats. Nothing auto-plays.
+- 📎 **Files and voice:** photos, voice notes and PDFs, encrypted in private chats and private groups. Nothing auto-plays.
 - 🧅 **Opt-in Tor** for every relay connection, fail-closed.
 - 🖥️ **Desktop comforts:** keeps running in the tray, notifications that never show message text, slash commands with completion.
 - 🛡️ **Safety:** QR and fingerprint verification, `/block`, triple-click panic wipe.
@@ -136,7 +136,8 @@ Ghostchat is a working Windows/Linux messenger: iced desktop GUI, installers and
 - **Every roster change rotates the key** and bumps the epoch, so a removal actually takes effect: the removed PC keeps the old key, and that key opens nothing. The person removed gets the same signed roster under an all-zero throwaway key, which tells their client it was removed instead of leaving it silently dark.
 - Removal is creator-only, like iOS: the roster is signed by the creator named inside it, and a receiver trusts the Noise session that delivered the state, not the payload's claim about who sent it. A member cannot re-sign itself back in, and a stale invite cannot undo a later removal.
 - **Members are addressed by fingerprint**, which derives the mesh peer id (the first 16 hex characters of the SHA-256 of the peer's Noise key), so an invite needs no address book entry — only a secured session and a verified announce.
-- Group traffic is a `0x25` broadcast relayed like public chat, so a group crosses strangers in the mesh; the sender's signature lives inside the ciphertext, which is what makes a relayed copy trustworthy. Own echoes and replays are dropped by message id. Text only in v1, matching iOS: no group files or voice notes.
+- Group traffic is a `0x25` broadcast relayed like public chat, so a group crosses strangers in the mesh; the sender's signature lives inside the ciphertext, which is what makes a relayed copy trustworthy. Own echoes and replays are dropped by message id.
+- **Group files and images work, without breaking the iOS group wire format.** An attachment is cut into chunks and each chunk is sealed as an ordinary signed, encrypted `0x25` group message carrying an extra inner TLV that iOS does not know. An iPhone in the group therefore stays compatible: it shows a text line for the attachment (one per chunk) and ignores the extra data, while ghostchat reassembles the chunks and shows one file. Up to 1 MiB per file, 16 members per group, and everything has to travel over the live Bluetooth mesh, because groups have no backfill.
 - Groups survive a restart: the creator-signed states are kept in `groups.sealed`, sealed with DPAPI (Windows) or the Secret Service key (Linux) because the epoch key lives inside them. A state that no longer verifies, that names another creator, or that no longer names you is dropped on load, never trusted.
 </details>
 
@@ -153,8 +154,9 @@ Ghostchat is a working Windows/Linux messenger: iced desktop GUI, installers and
 <details>
 <summary>📎 <b>Files, voice, payments</b></summary>
 
-- Incoming images, voice notes and PDFs (signed broadcast, or encrypted in a private chat) are validated (MIME allow-list, magic bytes, 1 MiB cap), saved to `Downloads\ghostchat` and shown inline. Voice notes play inside ghostchat. **Nothing auto-plays.**
+- Incoming images, voice notes and PDFs (signed broadcast, encrypted in a private chat, or chunked into a group) are validated (MIME allow-list, magic bytes, 1 MiB cap), saved to `Downloads\ghostchat` and shown inline. Voice notes play inside ghostchat. **Nothing auto-plays.**
 - The 🎤 button records a voice note (up to 30 s, Windows). Send files with **+**, drag-and-drop, or `/send <path>`. Ghostchat advertises the iOS private-media capabilities, so phones send encrypted, and missed private files are resent when the phone reconnects.
+- **In a private group** the same **+**, drag-and-drop and `/send` work. Ghostchat shows one progress line for the whole transfer, saves the file on each member's PC, and shows a single line when it is complete. A partial file that stops arriving says so after 10 minutes without a new chunk. An iOS build in the group sees the caption text once per chunk instead of the file.
 - Live push-to-talk from a phone shows "talking live"; the finished note arrives as usual.
 - `/pay <cashu-token>` sends a Cashu token as iOS does (public chats need `/pay <token> public`). Cashu tokens and Lightning invoices become chips that open your wallet. Ghostchat is a carrier, not a wallet.
 </details>
@@ -175,6 +177,7 @@ Ghostchat is a working Windows/Linux messenger: iced desktop GUI, installers and
 
 - **Mostly central-only radio.** Official phones are central+peripheral. On Windows, ghostchat also advertises when the adapter supports it; phones connect in and chat. Relaying between two phones through the PC has been shown once in a lab (an iPhone and an iPad out of each other's range, 2-hop ping), not yet with Android. Linux advertises through BlueZ, but no phone has connected to it in a lab yet. Phones that only see you over **Wi-Fi Aware** will not appear until they advertise Bluetooth.
 - **Needs a phone.** The mesh cannot be proven without official bitchat nearby. BitChat Desktop's Windows/Linux previews do not speak GATT, so they are not test peers.
+- **Groups are live and nearby, like the phones.** 16 members is the cap, group text and group files have no backfill or offline inbox, and a file needs every member who should receive it to be in Bluetooth range while it is sent. Group media is 1 MiB per file, 32 chunks, and a partial file expires after 10 minutes without a new chunk.
 - **Runs while open.** Closing the window leaves ghostchat in the tray (Windows, and Linux when the desktop has a notification area). Settings > **start at login** (off by default) starts it hidden in the tray. Quit from the tray icon.
 - **Not a wallet.** `/pay` and payment chips are a carrier, like official bitchat.
 - **Tor is opt-in and not bundled.** Settings > TOR routes relays through Tor Browser (`127.0.0.1:9150`) or the tor service (`127.0.0.1:9050`). Without it, location channels and Nostr messages reach relays from this PC's IP ([Windows](docs/WINDOWS.md#tor-opt-in), [Linux](docs/LINUX.md#tor-opt-in)).

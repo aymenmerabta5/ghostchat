@@ -182,6 +182,213 @@ fn message_roundtrips_and_verifies() {
     assert_eq!(opened.sender_signing_key, public_of(2));
 }
 
+fn sample_attachment(data: &[u8]) -> GroupAttachment {
+    let digest = sha256(b"whole file")[..8].try_into().unwrap();
+    GroupAttachment {
+        kind: MediaKind::Image,
+        attachment_id: [0x42; 8],
+        index: 0,
+        count: 1,
+        total_bytes: data.len() as u32,
+        digest,
+        name: "photo.png".into(),
+        mime: "image/png".into(),
+        data: data.to_vec(),
+        signature: [0u8; 64],
+    }
+}
+
+fn seal_sample_attachment(attachment: &GroupAttachment, message_id: &str, timestamp_ms: u64) -> Vec<u8> {
+    let group = GroupId([7u8; 16]);
+    seal_attachment(
+        &group,
+        1,
+        &[9u8; 32],
+        message_id,
+        &public_of(2),
+        "bob",
+        timestamp_ms,
+        "[image] 4 KB",
+        attachment,
+        |data| Some(signing_key(2).sign(data).to_bytes()),
+    )
+    .expect("seals")
+}
+
+#[test]
+fn attachment_chunk_roundtrips_and_verifies() {
+    let chunk = sample_attachment(&[0x89, b'P', b'N', b'G', 1, 2, 3]);
+    let payload = seal_sample_attachment(&chunk, "msg-1", 1_700_000_000_000);
+    let envelope = GroupEnvelope::decode(&payload).expect("decodes");
+    let opened = open_message(&envelope, &[9u8; 32]).expect("opens");
+    assert_eq!(opened.content, "[image] 4 KB");
+    let got = opened.attachment.expect("attachment survives");
+    assert_eq!(got.kind, MediaKind::Image);
+    assert_eq!(got.attachment_id, [0x42; 8]);
+    assert_eq!(got.index, 0);
+    assert_eq!(got.count, 1);
+    assert_eq!(got.total_bytes, 7);
+    assert_eq!(got.name, "photo.png");
+    assert_eq!(got.mime, "image/png");
+    assert_eq!(got.data, chunk.data);
+}
+
+#[test]
+fn attachment_signature_is_checked_even_when_the_text_signature_is_valid() {
+    let group = GroupId([7u8; 16]);
+    let chunk = sample_attachment(b"data");
+    let descriptor = chunk.descriptor().unwrap();
+    // The visible text is signed by the real sender...
+    let text = message_signing_content(&group, 1, "msg-1", 5, "[image] 4 B");
+    let text_signature = signing_key(2).sign(&text).to_bytes();
+    // ...but the chunk was signed by someone else. The attachment signature is
+    // a second, independent check, not decoration.
+    let forged = signing_key(3).sign(&GroupAttachment::signing_content(&group, 1, "msg-1", 5, &descriptor));
+    let mut value = descriptor;
+    value.extend_from_slice(&forged.to_bytes());
+    let payload = seal_inner(
+        &group,
+        1,
+        &[9u8; 32],
+        "msg-1",
+        &public_of(2),
+        "bob",
+        5,
+        "[image] 4 B",
+        &text_signature,
+        Some((INNER_TAG_ATTACHMENT, &value)),
+    )
+    .unwrap();
+    let envelope = GroupEnvelope::decode(&payload).unwrap();
+    assert_eq!(open_message(&envelope, &[9u8; 32]), Err(GroupError::BadSenderSignature));
+}
+
+#[test]
+fn unknown_inner_fields_are_ignored_like_the_reference() {
+    let group = GroupId([7u8; 16]);
+    let text = message_signing_content(&group, 1, "msg-1", 5, "hello");
+    let signature = signing_key(2).sign(&text).to_bytes();
+    let payload = seal_inner(
+        &group,
+        1,
+        &[9u8; 32],
+        "msg-1",
+        &public_of(2),
+        "bob",
+        5,
+        "hello",
+        &signature,
+        Some((0x7F, b"from a later revision")),
+    )
+    .unwrap();
+    let envelope = GroupEnvelope::decode(&payload).unwrap();
+    let opened = open_message(&envelope, &[9u8; 32]).expect("an unknown field must not break the line");
+    assert_eq!(opened.content, "hello");
+    assert_eq!(opened.attachment, None);
+}
+
+#[test]
+fn text_messages_have_no_attachment() {
+    let payload = seal_message(&GroupId([7u8; 16]), 1, &[9u8; 32], "msg-1", &public_of(2), "bob", 1, "hi", |data| {
+        Some(signing_key(2).sign(data).to_bytes())
+    })
+    .unwrap();
+    let envelope = GroupEnvelope::decode(&payload).unwrap();
+    let opened = open_message(&envelope, &[9u8; 32]).unwrap();
+    assert_eq!(opened.attachment, None, "plain text is the reference path");
+}
+
+#[test]
+fn attachment_rejects_a_signature_from_another_key() {
+    let chunk = sample_attachment(b"data");
+    let payload = seal_attachment(
+        &GroupId([7u8; 16]),
+        1,
+        &[9u8; 32],
+        "msg-1",
+        &public_of(2),
+        "bob",
+        1,
+        "[image] 4 B",
+        &chunk,
+        |data| Some(signing_key(3).sign(data).to_bytes()),
+    )
+    .expect("seals");
+    let envelope = GroupEnvelope::decode(&payload).unwrap();
+    assert_eq!(open_message(&envelope, &[9u8; 32]), Err(GroupError::BadSenderSignature));
+}
+
+#[test]
+fn attachment_cannot_move_to_another_message_id() {
+    let group = GroupId([7u8; 16]);
+    let chunk = sample_attachment(b"data");
+    let descriptor = chunk.descriptor().unwrap();
+    // The signature was made for msg-1; seal the same value under msg-2.
+    let chunk_signature = signing_key(2).sign(&GroupAttachment::signing_content(&group, 1, "msg-1", 5, &descriptor));
+    let mut value = descriptor;
+    value.extend_from_slice(&chunk_signature.to_bytes());
+    let text = message_signing_content(&group, 1, "msg-2", 5, "[image] 4 B");
+    let text_signature = signing_key(2).sign(&text).to_bytes();
+    let payload = seal_inner(
+        &group,
+        1,
+        &[9u8; 32],
+        "msg-2",
+        &public_of(2),
+        "bob",
+        5,
+        "[image] 4 B",
+        &text_signature,
+        Some((INNER_TAG_ATTACHMENT, &value)),
+    )
+    .unwrap();
+    let envelope = GroupEnvelope::decode(&payload).unwrap();
+    assert_eq!(open_message(&envelope, &[9u8; 32]), Err(GroupError::BadSenderSignature));
+}
+
+#[test]
+fn attachment_rejects_tampered_descriptor_fields() {
+    let chunk = sample_attachment(b"data");
+    let mut value = chunk.encode().unwrap();
+    // Change the MIME length byte inside the descriptor; the signature no
+    // longer covers the descriptor that is decoded.
+    let mime_len_at = 1 + 1 + 8 + 2 + 2 + 4 + 8 + 2 + "photo.png".len();
+    value[mime_len_at] ^= 0x01;
+    assert!(GroupAttachment::decode(&value).is_none(), "lengths must add up exactly");
+}
+
+#[test]
+fn attachment_rejects_impossible_sizes() {
+    let mut chunk = sample_attachment(b"data");
+    chunk.total_bytes = 0;
+    assert!(chunk.encode().is_err(), "an empty file has no chunks");
+
+    let mut chunk = sample_attachment(b"data");
+    chunk.count = 0;
+    assert!(chunk.encode().is_err());
+
+    let mut chunk = sample_attachment(b"data");
+    chunk.index = 1;
+    assert!(chunk.encode().is_err(), "index must be below count");
+
+    let mut chunk = sample_attachment(b"data");
+    chunk.data = vec![0u8; MAX_ATTACHMENT_CHUNK_BYTES + 1];
+    chunk.total_bytes = chunk.data.len() as u32;
+    assert!(chunk.encode().is_err(), "one chunk must fit one TLV value");
+}
+
+#[test]
+fn attachment_signing_content_binds_every_field() {
+    let group = GroupId([7u8; 16]);
+    let descriptor = sample_attachment(b"data").descriptor().unwrap();
+    let base = GroupAttachment::signing_content(&group, 1, "id", 5, &descriptor);
+    assert_ne!(base, GroupAttachment::signing_content(&GroupId([8u8; 16]), 1, "id", 5, &descriptor));
+    assert_ne!(base, GroupAttachment::signing_content(&group, 2, "id", 5, &descriptor));
+    assert_ne!(base, GroupAttachment::signing_content(&group, 1, "id2", 5, &descriptor));
+    assert_ne!(base, GroupAttachment::signing_content(&group, 1, "id", 6, &descriptor));
+    assert_ne!(base, GroupAttachment::signing_content(&group, 1, "id", 5, b"other"));
+}
+
 #[test]
 fn message_rejects_the_wrong_key() {
     let group = GroupId([7u8; 16]);

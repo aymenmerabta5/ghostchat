@@ -162,6 +162,9 @@ impl App {
             UiEvent::GeoLine { geohash, line } => return self.on_geo_line(geohash, line),
             UiEvent::GeoDm { cell, pubkey, line } => return self.on_geo_dm(cell, pubkey, line),
             UiEvent::GroupLine { group, line } => return self.on_group_line(group, line),
+            UiEvent::GroupFile { group, line, path, kind } => {
+                return self.on_group_file(group, line, Media::load(path, kind))
+            }
             UiEvent::GroupNotice { group, text } => match group {
                 Some(id) => {
                     self.inbox.push_notice(&Conversation::group(id), text, &self.selected);
@@ -256,6 +259,14 @@ impl App {
     /// signature in `ghostchat-core`; here we only apply the local block list,
     /// mentions, and unread/alert behavior.
     fn on_group_line(&mut self, group: String, line: ChatLine) -> bool {
+        self.on_group_entry(group, line, None)
+    }
+
+    fn on_group_file(&mut self, group: String, line: ChatLine, media: Media) -> bool {
+        self.on_group_entry(group, line, Some(media))
+    }
+
+    fn on_group_entry(&mut self, group: String, line: ChatLine, media: Option<Media>) -> bool {
         if !line.is_self {
             let blocked = line
                 .peer_id
@@ -278,7 +289,11 @@ impl App {
             };
             self.alert(conv.clone(), body);
         }
-        self.inbox.push_in(conv, line, &self.selected) || mention
+        let unseen = match media {
+            Some(media) => self.inbox.push_media_in(conv, line, media, &self.selected),
+            None => self.inbox.push_in(conv, line, &self.selected),
+        };
+        unseen || mention
     }
 
     fn on_geo_line(&mut self, geohash: String, line: ChatLine) -> bool {
