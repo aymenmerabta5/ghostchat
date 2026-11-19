@@ -1,8 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 (2026-11-18)
 
-- Private groups can now carry images, voice notes and files, up to 1 MiB each. Attachments travel as chunks inside ordinary signed, encrypted group messages, so iOS clients in the group remain compatible and show the caption as text while ghostchat reassembles and saves the file. Partial files expire after 10 minutes without a new chunk, with one notice, and a chunked group file reports one continuous 0-100% progress line.
+A same-day follow-up to 0.1.0. Private groups can now carry images, voice notes and files, up to 1 MiB each, without changing the iOS group wire format.
+
+- Each attachment is split into chunks and sealed inside ordinary signed, encrypted group messages. An iPhone in the group ignores the extra data and shows the caption as a text line (one per chunk); ghostchat reassembles the chunks and shows one file.
+- Files save through the same validated path as private files: MIME allow-list, magic bytes, 1 MiB cap, and a whole-file SHA-256 digest check.
+- A chunked group send reports one continuous 0-100% progress line. A partial file expires after 10 minutes without a new chunk, with one notice.
+- The 16-member cap and the nearby-Bluetooth-only mesh are unchanged; group media is live-only and has no backfill or offline inbox.
+
+The rest of 0.1.0 is unchanged. Installing over 0.1.0 keeps your identity, favorites and groups.
 
 ## 0.1.0 (2026-11-18)
 
