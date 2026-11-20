@@ -237,6 +237,8 @@ impl App {
         self.joined.clear();
         self.linking.clear();
         self.draft.clear();
+        self.drafts.clear();
+        self.error_conv = None;
         self.location = Default::default();
         self.selected = Conversation::Mesh;
         self.show_fingerprint = false;

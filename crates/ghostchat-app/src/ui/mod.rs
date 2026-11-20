@@ -73,6 +73,8 @@ struct App {
     npub: String,
     status: String,
     draft: String,
+    /// Half-typed lines of the other chats, stashed when the user switches.
+    drafts: HashMap<Conversation, String>,
     inbox: Inbox,
     roster: Roster,
     social: Social,
@@ -82,6 +84,9 @@ struct App {
     joined: BTreeSet<String>,
     linking: Vec<(String, Instant)>,
     error: Option<String>,
+    /// The chat `error` belongs to; `None` means it concerns the app itself
+    /// (radio, storage) and is shown everywhere.
+    error_conv: Option<Conversation>,
     radio_ready: bool,
     /// Bluetooth is stuck; the header offers "reset Bluetooth".
     offer_reset: bool,
@@ -237,6 +242,7 @@ impl App {
             npub: String::new(),
             status: error.clone().unwrap_or_else(|| "starting mesh…".into()),
             draft: String::new(),
+            drafts: HashMap::new(),
             inbox: Inbox::default(),
             roster: Roster::default(),
             social,
@@ -244,6 +250,8 @@ impl App {
             joined: BTreeSet::new(),
             linking: Vec::new(),
             error,
+            // Boot errors (storage, Tor setting) concern the app, not a chat.
+            error_conv: None,
             radio_ready: false,
             offer_reset: false,
             relaunching: false,
@@ -469,9 +477,20 @@ impl App {
         }
         if conv != self.selected {
             self.show_fingerprint = false;
+            // Keep what was typed per chat: switching to read another
+            // conversation must not discard a half-written line, and the
+            // next chat must not open with the previous one's text.
+            let outgoing = self.selected.clone();
+            if self.draft.is_empty() {
+                self.drafts.remove(&outgoing);
+            } else {
+                self.drafts.insert(outgoing, std::mem::take(&mut self.draft));
+            }
+            self.draft = self.drafts.remove(&conv).unwrap_or_default();
             // An error about one chat should not sit in the next chat's
-            // header; radio trouble stays until the radio is back.
-            if self.radio_ready && self.error.take().is_some() {
+            // header. Errors about the app itself (radio, storage) stay.
+            if self.error_conv.take().is_some() {
+                self.error = None;
                 self.status.clear();
             }
         }
@@ -540,12 +559,23 @@ impl App {
             return;
         };
         if let Err(err) = self.social.save(path) {
-            self.set_error(format!("could not save favorites: {err}"));
+            self.set_app_error(format!("could not save favorites: {err}"));
         }
     }
 
+    /// An error about the chat the user is looking at: it clears when they
+    /// move to another chat, and is not repeated there.
     fn set_error(&mut self, err: String) {
         self.error = Some(err.clone());
+        self.error_conv = Some(self.selected.clone());
+        self.status = err;
+    }
+
+    /// An error about the app itself (radio, storage): it stays until the
+    /// condition clears, whichever chat is open.
+    fn set_app_error(&mut self, err: String) {
+        self.error = Some(err.clone());
+        self.error_conv = None;
         self.status = err;
     }
 

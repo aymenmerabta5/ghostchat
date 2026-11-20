@@ -96,6 +96,7 @@ fn print_event(event: &UiEvent) {
         UiEvent::Status(s) => println!("* {s}"),
         UiEvent::Radio { .. } => {} // the status line right after names the role
         UiEvent::Error(s) => eprintln!("! {s}"),
+        UiEvent::ErrorIn(_, s) => eprintln!("! {s}"),
         UiEvent::NeedsReset(s) => eprintln!("! {s} Here: type /reset."),
         UiEvent::Relaunch => println!("* Bluetooth was turned off and on; /quit and run ghostchat --scan again"),
         UiEvent::Me { nick, fingerprint, .. } => println!("* you are {nick}, fingerprint {fingerprint}"),

@@ -3,6 +3,7 @@
 //! Tor) presence heartbeats.
 
 use crate::geo_dm::{GeoDmIn, GeoDms};
+use crate::inbox::Conversation;
 use crate::ledger::Ledger;
 use crate::mesh_worker::UiEvent;
 use crate::tor_link;
@@ -64,9 +65,10 @@ impl GeoLink {
 
     pub async fn join(&mut self, cell: &str) {
         if !is_valid_geohash(cell) {
-            let _ = self
-                .evt_tx
-                .send(UiEvent::Error(format!("#{cell} is not a geohash (digits and letters except a, i, l, o)")));
+            let _ = self.evt_tx.send(UiEvent::ErrorIn(
+                Conversation::Geo(cell.to_string()),
+                format!("#{cell} is not a geohash (digits and letters except a, i, l, o)"),
+            ));
             return;
         }
         if self.is_joined(cell) {
@@ -77,7 +79,7 @@ impl GeoLink {
         let channel = match GeoChannel::open(cell, keys, self.transport).await {
             Ok(channel) => Arc::new(channel),
             Err(err) => {
-                let _ = self.evt_tx.send(UiEvent::Error(err.to_string()));
+                let _ = self.evt_tx.send(UiEvent::ErrorIn(Conversation::Geo(cell.to_string()), err.to_string()));
                 let _ = self.evt_tx.send(UiEvent::GeoLeft(cell.to_string()));
                 return;
             }
@@ -85,6 +87,7 @@ impl GeoLink {
         let sub = channel.clone();
         let inbound = self.inbound.clone();
         let errors = self.evt_tx.clone();
+        let conv = Conversation::Geo(cell.to_string());
         let task = tokio::spawn(async move {
             match sub.subscribe().await {
                 Ok(mut rx) => {
@@ -95,7 +98,7 @@ impl GeoLink {
                     }
                 }
                 Err(err) => {
-                    let _ = errors.send(UiEvent::Error(format!("location channel: {err}")));
+                    let _ = errors.send(UiEvent::ErrorIn(conv, format!("location channel: {err}")));
                 }
             }
         });
@@ -231,6 +234,7 @@ impl GeoLink {
         let text = text.to_string();
         let nickname = nickname.to_string();
         let evt_tx = self.evt_tx.clone();
+        let conv = Conversation::Geo(cell.to_string());
         tokio::spawn(async move {
             let result = channel.publish(&text, &nickname, teleported).await;
             channel.refresh_relays().await;
@@ -243,7 +247,7 @@ impl GeoLink {
                 }
                 Err(err) => {
                     tracing::warn!(%err, "geo: publish failed");
-                    let _ = evt_tx.send(UiEvent::Error(format!("location post failed: {err}")));
+                    let _ = evt_tx.send(UiEvent::ErrorIn(conv, format!("location post failed: {err}")));
                 }
             }
         });

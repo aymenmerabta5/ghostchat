@@ -401,30 +401,43 @@ fn payment_chips(content: &str) -> Option<Element<'static, Message>> {
     Some(container(row(buttons).spacing(8)).padding(iced::Padding { left: 24.0, ..iced::Padding::ZERO }).into())
 }
 
-/// Inline preview for images (click opens the full file) or an "open file"
-/// button, and a link to the file in Explorer for dragging elsewhere.
+/// Inline preview for images (the picture and "open image" open the full
+/// file) or an "open file" button, and a link to the file in Explorer for
+/// dragging elsewhere.
 fn attachment(media: &Media) -> Element<'static, Message> {
-    let path = media.path.clone();
-    let (body, padding): (Element<'static, Message>, u16) = match media.kind {
-        MediaKind::Image => (
-            image(image::Handle::from_path(&media.path))
-                .width(Length::Fixed(PREVIEW_WIDTH))
-                .content_fit(ContentFit::Contain)
-                .into(),
-            0,
-        ),
-        _ => (text("open file").size(13).color(theme::GREEN).into(), 6),
-    };
-    container(
-        row![
-            button(body).on_press(Message::OpenPath(path)).padding(padding).style(theme::accent_button),
-            reveal_link(media)
+    let body: Element<'static, Message> = match media.kind {
+        MediaKind::Image => column![
+            button(
+                image(image::Handle::from_path(&media.path))
+                    .width(Length::Fixed(PREVIEW_WIDTH))
+                    .content_fit(ContentFit::Contain)
+            )
+            .on_press(Message::OpenPath(media.path.clone()))
+            .padding(0)
+            .style(theme::accent_button),
+            row![
+                button(text("open image").size(11).color(theme::GREEN))
+                    .on_press(Message::OpenPath(media.path.clone()))
+                    .padding(0)
+                    .style(theme::icon_button),
+                reveal_link(media),
+            ]
+            .spacing(10),
+        ]
+        .spacing(4)
+        .into(),
+        _ => row![
+            button(text("open file").size(13).color(theme::GREEN))
+                .on_press(Message::OpenPath(media.path.clone()))
+                .padding(6)
+                .style(theme::accent_button),
+            reveal_link(media),
         ]
         .spacing(10)
-        .align_y(Alignment::End),
-    )
-    .padding(iced::Padding { left: 24.0, ..iced::Padding::ZERO })
-    .into()
+        .align_y(Alignment::End)
+        .into(),
+    };
+    container(body).padding(iced::Padding { left: 24.0, ..iced::Padding::ZERO }).into()
 }
 
 /// Play/stop with the note's length. Never starts on its own: there is no

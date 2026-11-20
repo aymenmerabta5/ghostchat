@@ -19,12 +19,14 @@ impl App {
                     self.radio_ready = true;
                 }
                 self.error = None;
+                self.error_conv = None;
                 self.status = s;
             }
             UiEvent::Radio { advertising } => self.advertising = Some(advertising),
             UiEvent::NeedsReset(hint) => {
                 self.offer_reset = true;
-                self.set_error(hint);
+                // Bluetooth trouble is not about the open chat.
+                self.set_app_error(hint);
             }
             UiEvent::Relaunch => self.relaunching = true,
             UiEvent::Me { id, nick, fingerprint, npub } => {
@@ -220,8 +222,22 @@ impl App {
                     self.radio_ready = false;
                     self.linking.clear();
                     self.roster.all_offline();
+                    // Radio trouble outlives any one conversation.
+                    self.set_app_error(err);
+                } else {
+                    self.set_error(err);
                 }
-                self.set_error(err);
+            }
+            UiEvent::ErrorIn(conv, err) => {
+                if self.selected == conv {
+                    self.error_conv = Some(conv);
+                    self.error = Some(err.clone());
+                    self.status = err;
+                } else {
+                    // The user has moved on; keep the failure with the chat
+                    // it belongs to instead of leaking it into this one.
+                    self.inbox.push_notice(&conv, format!("! {err}"), &self.selected);
+                }
             }
         }
         false

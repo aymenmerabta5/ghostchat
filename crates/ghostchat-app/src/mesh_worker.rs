@@ -210,6 +210,9 @@ pub enum UiEvent {
     /// A redacted diagnostics report, ready for the clipboard.
     DiagReport(String),
     Error(String),
+    /// An error about one conversation, shown in that chat even if the user
+    /// has moved on by the time it arrives.
+    ErrorIn(crate::inbox::Conversation, String),
     /// Bluetooth is stuck; offer [`Command::ResetBluetooth`].
     NeedsReset(String),
     /// The radio was reset and the worker has stopped; start a fresh

@@ -155,7 +155,7 @@ impl Registry {
     }
 }
 
-fn is_policy_refusal(why: &str) -> bool {
+pub(crate) fn is_policy_refusal(why: &str) -> bool {
     let why = why.trim_start().to_ascii_lowercase();
     POLICY_PREFIXES.iter().any(|p| why.starts_with(p))
 }

@@ -14,6 +14,10 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 const RELAYS_PER_CELL: usize = 5;
+/// A post sent while a relay is still connecting fails with "relay not
+/// connected". That is a race with [`GeoChannel::open`], so a post no relay
+/// took is retried once after this long.
+const RETRY_SETTLE: Duration = Duration::from_secs(6);
 /// iOS scores NIP-13 work on public geohash messages; 8 bits lifts rate limits.
 const POW_BITS: NonZeroU8 = NonZeroU8::new(8).unwrap();
 const BASE32: &[u8] = b"0123456789bcdefghjkmnpqrstuvwxyz";
@@ -123,11 +127,45 @@ impl Published {
             crate::relay_health::record_failure(url, why);
         }
         if accepted.is_empty() {
-            let reasons: Vec<String> = refused.iter().map(|(url, why)| format!("{url}: {why}")).collect();
-            return Err(NostrError::Other(format!("no relay accepted the event ({})", reasons.join("; "))));
+            tracing::warn!(refused = ?refused, "geo: no relay accepted the event");
+            return Err(NostrError::Other(refusal_summary(&refused)));
         }
         Ok(Self { accepted, refused })
     }
+}
+
+/// A line that fits the header: a five-relay dump names hosts the user has
+/// never heard of and pushes the conversation title off screen. The full
+/// reasons stay in the log.
+fn refusal_summary(refused: &[(String, String)]) -> String {
+    let (mut timeouts, mut offline, mut policy, mut other) = (0, 0, 0, 0);
+    for (_, why) in refused {
+        let why = why.trim().to_ascii_lowercase();
+        if why.contains("timeout") || why.contains("timed out") || why.contains("deadline") {
+            timeouts += 1;
+        } else if why.contains("not connected") {
+            offline += 1;
+        } else if crate::relay_health::is_policy_refusal(&why) {
+            policy += 1;
+        } else {
+            other += 1;
+        }
+    }
+    let mut parts = Vec::new();
+    if timeouts > 0 {
+        parts.push(format!("{timeouts} timed out"));
+    }
+    if offline > 0 {
+        parts.push(format!("{offline} not connected"));
+    }
+    if policy > 0 {
+        parts.push(format!("{policy} refused the post"));
+    }
+    if other > 0 {
+        parts.push(format!("{other} failed"));
+    }
+    let detail = if parts.is_empty() { "no reason given".to_string() } else { parts.join(", ") };
+    format!("no relay took the post ({detail}; it is still in this chat)")
 }
 
 fn haversine_km(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
@@ -265,7 +303,39 @@ impl GeoChannel {
         if targets.is_empty() {
             return Err(NostrError::Other(format!("no relay for #{} takes posts right now", self.geohash)));
         }
-        Published::from_output(self.client.send_event(event).to(targets).await?)
+        let output = self.client.send_event(event).to(targets.clone()).await?;
+        // Only a race with `open` is worth another try: a policy refusal or
+        // a dead relay answers the same way however long we wait.
+        let raced = output.failed.values().any(|why| why.contains("not connected"));
+        match Published::from_output(output) {
+            Ok(published) => Ok(published),
+            Err(first) if raced => match self.retry_cell(event, &targets).await {
+                Some(retry) => retry,
+                None => Err(first),
+            },
+            Err(first) => Err(first),
+        }
+    }
+
+    /// A post made while [`Self::open`] is still connecting asks relays that
+    /// are not up yet and comes back "relay not connected". Phones subscribe
+    /// only to the cell's own relays, so an attempt to a further relay would
+    /// report success while reaching nobody: the retry waits for whichever
+    /// of the same targets came up and resends to those.
+    async fn retry_cell(&self, event: &Event, targets: &[RelayUrl]) -> Option<Result<Published, NostrError>> {
+        if !wait_for_any_of(&self.client, targets, RETRY_SETTLE).await {
+            return None;
+        }
+        let retry: Vec<RelayUrl> =
+            writable(&self.client).await.into_iter().filter(|url| targets.iter().any(|t| t == url)).collect();
+        if retry.is_empty() {
+            return None;
+        }
+        tracing::info!(geohash = %self.geohash, relays = retry.len(), "geo: retrying the cell's own relays");
+        Some(match self.client.send_event(event).to(retry).await {
+            Ok(output) => Published::from_output(output),
+            Err(err) => Err(NostrError::from(err)),
+        })
     }
 
     /// Our public key in this cell (what phones show as `#abcd`).
@@ -411,6 +481,27 @@ async fn maintain_cell(client: Client, geohash: String, subscriptions: Subscript
     }
 }
 
+/// True once one of `targets` is connected and usable, false after `timeout`.
+/// A retry waits on these rather than on any relay: sending to a relay the
+/// phones did not subscribe to would report success while reaching nobody.
+async fn wait_for_any_of(client: &Client, targets: &[RelayUrl], timeout: Duration) -> bool {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let relays = client.relays().await;
+        if relays.iter().any(|(url, relay)| {
+            relay.status() == RelayStatus::Connected
+                && crate::relay_health::is_usable(url.as_str())
+                && targets.iter().any(|target| target == url)
+        }) {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
 /// True once a relay in `client` that has not refused us or been benched
 /// is connected, false after `timeout`.
 pub(crate) async fn wait_for_any(client: &Client, timeout: Duration) -> bool {
@@ -501,6 +592,29 @@ pub(crate) fn parse_geo(event: &Event, expected: &str) -> Option<GeoMessage> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_refused_post_summarizes_reasons_instead_of_listing_relays() {
+        let refused = vec![
+            ("wss://a".to_string(), "timeout".to_string()),
+            ("wss://b".to_string(), "relay not connected".to_string()),
+            ("wss://c".to_string(), "relay not connected".to_string()),
+            ("wss://d".to_string(), "blocked: NIP-05 verification needed".to_string()),
+        ];
+        let line = refusal_summary(&refused);
+        assert_eq!(
+            line,
+            "no relay took the post (1 timed out, 2 not connected, 1 refused the post; it is still in this chat)"
+        );
+        assert!(!line.contains("wss://"), "a header line must not name relays: {line}");
+    }
+
+    #[test]
+    fn an_empty_success_set_is_an_error_not_a_silent_delivery() {
+        let output: Output<()> = Output::default();
+        let err = Published::from_output(output).expect_err("no relay took it");
+        assert!(err.to_string().contains("no relay took the post"), "{err}");
+    }
 
     #[test]
     fn a_shrunken_channel_is_topped_up_with_the_nearest_missing_relays() {
