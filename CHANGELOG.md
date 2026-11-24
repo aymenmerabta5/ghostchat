@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.2.0 (2026-11-25)
+
+A feature and design release. The Bluetooth mesh and private-message wire formats are unchanged, so 0.2.0 interoperates with 0.1.x and iOS clients as before.
+
+**Code and notebooks**
+
+- Fenced code blocks (backtick or tilde fences, with any language label) render as cards: syntax colouring, the language name, a copy button, unwrapped lines that scroll horizontally, and preserved indentation.
+- The composer is multi-line now. Enter sends, Shift+Enter adds a line, and pasted code keeps its formatting. Slash completion still works.
+- `.ipynb` notebooks and source/text files can be sent with **+**, drag-and-drop, or `/send`, through the same MIME allow-list, magic-byte validation and 1 MiB cap as other files. Messages beyond the 16-bit wire limit are refused with an attachment hint instead of being cut mid-character.
+
+**Copy what you need**
+
+- **Select** in the channel header enters selection mode. Tick messages, Shift-click to extend a range, use **select all**, then **copy** or `Ctrl/Cmd+C`. Copied text follows thread order. `Esc` or **done** leaves selection mode.
+
+**A new desktop UI**
+
+- Graphite surfaces with a mint signal colour, sans-serif prose and controls, monospace channel names and identifiers, and one consistent type and spacing scale.
+- Messages use a stacked `@nick HH:MM` meta line, group consecutive received messages from the same sender within five minutes, and live in a centred 960 px reading column.
+- Rebuilt sidebar, top bar, channel header, composer, selection bar, settings, debug and info sheets, location view, and code/file cards. New `GH` logo and window icon.
+- Conversation previews stay on one line, secondary text is easier to read, and location channels no longer show Attach/Record controls that cannot work there.
+
+Installing over 0.1.1 keeps your identity, favorites, groups, saved history and bookmarks. Known limits are unchanged and listed in [README.md](README.md#honest-limits).
+
 ## 0.1.1 (2026-11-18)
 
 A same-day follow-up to 0.1.0. Private groups can now carry images, voice notes and files, up to 1 MiB each, without changing the iOS group wire format.
