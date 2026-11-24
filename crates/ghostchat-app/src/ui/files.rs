@@ -76,30 +76,34 @@ impl App {
 
 async fn pick() -> Option<PathBuf> {
     rfd::AsyncFileDialog::new()
-        .set_title("send a photo, voice note or PDF")
-        .add_filter("photos, voice notes, PDFs", SENDABLE_EXTENSIONS)
+        .set_title("send a photo, voice note, document, notebook or code file")
+        .add_filter("photos, audio, PDFs, notebooks, code", SENDABLE_EXTENSIONS)
         .pick_file()
         .await
         .map(|file| file.path().to_path_buf())
 }
 
-/// Window drag-and-drop and the composer's Tab/Up/Down keys.
+/// Window drag-and-drop and the shortcuts that work outside the composer:
+/// Shift tracking and Ctrl+C for message selection, Escape to leave it.
 pub(super) fn window_events() -> Subscription<Message> {
+    use keyboard::key::Named;
     event::listen_with(|event, _status, _window| match event {
         Event::Window(window::Event::FileHovered(_)) => Some(Message::DropHover(true)),
         Event::Window(window::Event::FilesHoveredLeft) => Some(Message::DropHover(false)),
         Event::Window(window::Event::FileDropped(path)) => Some(Message::FileDropped(path)),
         Event::Window(window::Event::Focused) => Some(Message::Focus(true)),
         Event::Window(window::Event::Unfocused) => Some(Message::Focus(false)),
-        Event::Keyboard(keyboard::Event::KeyPressed { key: keyboard::Key::Named(named), .. }) => {
-            use keyboard::key::Named;
-            let key = match named {
-                Named::Tab => SlashKey::Complete,
-                Named::ArrowUp => SlashKey::Up,
-                Named::ArrowDown => SlashKey::Down,
-                _ => return None,
-            };
-            Some(Message::SlashKey(key))
+        Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => Some(Message::ShiftChanged(modifiers.shift())),
+        Event::Keyboard(keyboard::Event::KeyPressed { key: keyboard::Key::Named(Named::Escape), .. }) => {
+            Some(Message::CancelSelection)
+        }
+        Event::Keyboard(keyboard::Event::KeyPressed { key: keyboard::Key::Named(Named::Copy), .. }) => {
+            Some(Message::CopySelected)
+        }
+        Event::Keyboard(keyboard::Event::KeyPressed { key: keyboard::Key::Character(c), modifiers, .. })
+            if (modifiers.control() || modifiers.command()) && c.as_str().eq_ignore_ascii_case("c") =>
+        {
+            Some(Message::CopySelected)
         }
         _ => None,
     })

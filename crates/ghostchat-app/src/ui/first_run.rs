@@ -30,7 +30,7 @@ pub(super) fn people_hint(
     now: Instant,
 ) -> &'static [&'static str] {
     if !radio_ready {
-        return if radio_error { &["bluetooth off - enable it, ghostchat retries"] } else { &["starting radio…"] };
+        return if radio_error { &["bluetooth off - enable it to retry"] } else { &["starting radio…"] };
     }
     if !alone.waited(now) {
         return &["nobody around yet…"];
@@ -54,7 +54,7 @@ mod tests {
         let t = Instant::now();
         let mut alone = Alone::default();
         assert_eq!(people_hint(false, false, &alone, t), ["starting radio…"]);
-        assert_eq!(people_hint(false, true, &alone, t)[0], "bluetooth off - enable it, ghostchat retries");
+        assert_eq!(people_hint(false, true, &alone, t)[0], "bluetooth off - enable it to retry");
         alone.update(true, t);
         assert_eq!(people_hint(true, false, &alone, t + PATIENCE / 2), ["nobody around yet…"]);
         alone.update(true, t + PATIENCE / 2);

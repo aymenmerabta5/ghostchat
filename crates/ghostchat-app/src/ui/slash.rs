@@ -35,7 +35,7 @@ pub(super) struct SlashCommand {
 
 pub(super) const COMMANDS: &[SlashCommand] = &[
     cmd("/msg", "<nick> <text>", "private message someone nearby", Scope::Anywhere),
-    cmd("/send", "<path>", "send a photo, voice note or PDF (max 1 MiB)", Scope::MeshDmOrGroup),
+    cmd("/send", "<path>", "send a photo, audio, PDF, notebook or code file (max 1 MiB)", Scope::MeshDmOrGroup),
     cmd("/sendvisible", "<path>", "send unencrypted to a peer without private media", Scope::Dm),
     cmd("/fav", "<nick>", "favorite: reach them over Nostr when out of range", Scope::Anywhere),
     cmd("/unfav", "<nick>", "remove a favorite", Scope::Anywhere),
@@ -92,7 +92,9 @@ pub(super) fn help_text() -> String {
         .collect();
     format!(
         "{} · type / for suggestions (Tab completes) · + or drag a file in to send · \
-         click the ghostchat/ title for settings and info (triple-click: panic wipe)",
+         Shift+Enter for a new line · fence code with ``` for highlighting and copy · \
+         select copies whole messages · click the ghostchat/ title for settings and info \
+         (triple-click: panic wipe)",
         list.join(" · ")
     )
 }

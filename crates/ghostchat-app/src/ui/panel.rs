@@ -2,7 +2,7 @@
 //! `bitchat/`). `settings`: identity, voice, history, private-message
 //! relays and the panic wipe. `info`: features, symbols, privacy, how to use.
 
-use super::view::{BOLD, SYMBOL};
+use super::view::{MONO, SANS, SANS_BOLD, SANS_SEMIBOLD, SYMBOL};
 use super::{App, Message};
 use crate::theme;
 use ghostchat_nostr::{add_custom_relay, DM_RELAYS};
@@ -128,36 +128,42 @@ impl App {
     /// Shown instead of the conversation while the panel is open.
     pub(super) fn panel_view(&self, tab: Tab) -> Element<'_, Message> {
         let tab_button = |label: &'static str, which: Tab| {
-            button(text(label).size(13))
+            button(text(label).size(10.5).font(SANS))
                 .on_press(Message::Panel(PanelMsg::Open(which)))
-                .padding([4, 12])
+                .padding([5, 12])
                 .style(theme::conv_button(tab == which))
         };
         let head = row![
             column![
-                text("ghostchat/").size(20).font(BOLD).color(theme::GREEN),
-                text("bitchat-compatible mesh chat for the desktop").size(11).color(theme::GRAY),
+                text("ghostchat").size(14).font(SANS_BOLD).color(theme::TEXT),
+                text("bitchat-compatible mesh chat for the desktop").size(9.5).font(SANS).color(theme::MUTED),
             ]
-            .spacing(2),
+            .spacing(3),
             Space::with_width(Length::Fill),
-            tab_button("settings", Tab::Settings),
-            tab_button("debug", Tab::Debug),
-            tab_button("info", Tab::Info),
-            button(text("DONE").size(12).font(BOLD))
+            tab_button("Settings", Tab::Settings),
+            tab_button("Debug", Tab::Debug),
+            tab_button("Info", Tab::Info),
+            button(text("Done").size(10.5).font(SANS))
                 .on_press(Message::Panel(PanelMsg::Close))
-                .padding([4, 12])
+                .padding([5, 12])
                 .style(theme::accent_button),
         ]
-        .spacing(8)
+        .spacing(6)
         .align_y(Alignment::Center);
         let body = match tab {
             Tab::Settings => self.settings_tab(),
             Tab::Debug => self.debug_tab(),
             Tab::Info => info_tab(),
         };
+        let body = container(body)
+            .padding(iced::Padding { top: 8.0, right: 24.0, bottom: 32.0, left: 24.0 })
+            .max_width(760)
+            .width(Length::Fill);
         column![
-            container(head).padding([10, 18]).width(Length::Fill).style(theme::header_bar),
-            scrollable(container(body).padding([12, 22]).max_width(760)).width(Length::Fill).height(Length::Fill),
+            container(head).padding([12, 20]).width(Length::Fill).style(theme::header_bar),
+            scrollable(container(body).width(Length::Fill).center_x(Length::Fill))
+                .width(Length::Fill)
+                .height(Length::Fill),
         ]
         .into()
     }
@@ -214,12 +220,13 @@ impl App {
                 text_input("wss://relay.example.com", &self.panel.relay_draft)
                     .on_input(|v| Message::Panel(PanelMsg::RelayDraft(v)))
                     .on_submit(Message::Panel(PanelMsg::RelayAdd))
-                    .size(13)
-                    .padding([4, 8])
+                    .size(11)
+                    .font(MONO)
+                    .padding([5, 8])
                     .style(theme::composer),
-                button(text("add").size(12))
+                button(text("Add").size(10.5).font(SANS))
                     .on_press(Message::Panel(PanelMsg::RelayAdd))
-                    .padding([4, 12])
+                    .padding([5, 12])
                     .style(theme::accent_button),
             ]
             .spacing(8)
@@ -232,23 +239,23 @@ impl App {
         items.push(heading("DANGER ZONE"));
         let wipe: Element<'_, Message> = if self.panel.confirm_wipe {
             row![
-                text("wipe identity, chats, and peers?").size(14).font(BOLD).color(theme::ALERT),
-                button(text("wipe").size(12).font(BOLD))
+                text("Wipe identity, chats, and peers?").size(12).font(SANS_SEMIBOLD).color(theme::ALERT),
+                button(text("Wipe").size(10.5).font(SANS_BOLD))
                     .on_press(Message::Panel(PanelMsg::WipeNow))
-                    .padding([4, 12])
+                    .padding([5, 12])
                     .style(theme::accent_button),
-                button(text("cancel").size(12))
+                button(text("Cancel").size(10.5).font(SANS))
                     .on_press(Message::Panel(PanelMsg::AskWipe(false)))
-                    .padding([4, 12])
+                    .padding([5, 12])
                     .style(theme::accent_button),
             ]
             .spacing(10)
             .align_y(Alignment::Center)
             .into()
         } else {
-            button(text("panic wipe").size(13).color(theme::ALERT))
+            button(text("Panic wipe").size(10.5).font(SANS).color(theme::ALERT))
                 .on_press(Message::Panel(PanelMsg::AskWipe(true)))
-                .padding([4, 12])
+                .padding([5, 12])
                 .style(theme::accent_button)
                 .into()
         };
@@ -308,8 +315,8 @@ fn info_tab() -> Element<'static, Message> {
     for (glyph, color, about) in symbols() {
         items.push(
             row![
-                container(text(glyph).size(14).font(SYMBOL).color(color)).width(44),
-                text(about).size(13).color(theme::GREEN_SOFT),
+                container(text(glyph).size(12).font(SYMBOL).color(color)).width(40),
+                text(about).size(10.5).line_height(1.5).font(SANS).color(theme::GRAY),
             ]
             .align_y(Alignment::Center)
             .into(),
@@ -321,7 +328,7 @@ fn info_tab() -> Element<'static, Message> {
     }
     items.push(heading("HOW TO USE"));
     for line in HOW_TO {
-        items.push(text(format!("• {line}")).size(13).color(theme::GREEN_SOFT).into());
+        items.push(text(format!("•  {line}")).size(10.5).line_height(1.55).font(SANS).color(theme::GRAY).into());
     }
     items.push(heading("ABOUT"));
     items.push(note(concat!(
@@ -391,13 +398,13 @@ fn symbols() -> [(&'static str, iced::Color, &'static str); 10] {
 }
 
 fn heading(label: &str) -> Element<'_, Message> {
-    container(text(label).size(11).font(BOLD).color(theme::GRAY))
-        .padding(iced::Padding { top: 14.0, ..iced::Padding::ZERO })
+    container(text(label).size(8.5).font(SANS_BOLD).color(theme::MUTED))
+        .padding(iced::Padding { top: 18.0, bottom: 2.0, ..iced::Padding::ZERO })
         .into()
 }
 
 pub(super) fn note(body: &str) -> Element<'_, Message> {
-    text(body).size(12).color(theme::GRAY).into()
+    text(body).size(10.5).line_height(1.5).font(SANS).color(theme::GRAY).into()
 }
 
 pub(super) fn setting<'a>(
@@ -413,7 +420,7 @@ pub(super) fn setting_with<'a>(
     about: Element<'a, Message>,
     control: Option<Element<'a, Message>>,
 ) -> Element<'a, Message> {
-    let words = column![text(title).size(14).color(theme::GREEN), about].spacing(2);
+    let words = column![text(title).size(12).font(SANS_SEMIBOLD).color(theme::TEXT), about].spacing(3);
     match control {
         Some(control) => row![words.width(Length::Fill), control].spacing(16).align_y(Alignment::Center).into(),
         None => words.into(),
@@ -421,20 +428,20 @@ pub(super) fn setting_with<'a>(
 }
 
 pub(super) fn toggle(state: &str, press: Message) -> Element<'_, Message> {
-    button(text(state).size(12).font(BOLD)).on_press(press).padding([4, 14]).style(theme::accent_button).into()
+    button(text(state).size(10).font(SANS_BOLD)).on_press(press).padding([4, 12]).style(theme::accent_button).into()
 }
 
 /// `label  value  [copy]`; `copy` is the raw value when it differs from the shown one.
 fn copy_row(label: &str, shown: String, copy: Option<String>) -> Element<'_, Message> {
     let mut line = row![
-        container(text(label).size(12).color(theme::GRAY)).width(100),
-        text(shown.clone()).size(13).color(theme::ORANGE).width(Length::Fill),
+        container(text(label).size(9).font(SANS).color(theme::MUTED)).width(90),
+        text(shown.clone()).size(10.5).font(MONO).color(theme::GREEN_SOFT).width(Length::Fill),
     ]
     .spacing(8)
     .align_y(Alignment::Center);
     if !shown.is_empty() {
         line = line.push(
-            button(text("copy").size(11))
+            button(text("Copy").size(9.5).font(SANS))
                 .on_press(Message::Panel(PanelMsg::Copy(copy.unwrap_or(shown))))
                 .padding([2, 8])
                 .style(theme::accent_button),
@@ -445,8 +452,10 @@ fn copy_row(label: &str, shown: String, copy: Option<String>) -> Element<'_, Mes
 
 fn relay_row(url: &str, remove: Option<Message>) -> Element<'_, Message> {
     let tail: Element<'_, Message> = match remove {
-        Some(msg) => button(text("remove").size(11)).on_press(msg).padding([2, 8]).style(theme::accent_button).into(),
-        None => text("built in").size(11).color(theme::GRAY).into(),
+        Some(msg) => {
+            button(text("Remove").size(9.5).font(SANS)).on_press(msg).padding([2, 8]).style(theme::accent_button).into()
+        }
+        None => text("Built in").size(9).font(SANS).color(theme::MUTED).into(),
     };
-    row![text(url).size(13).color(theme::GREEN_SOFT).width(Length::Fill), tail].align_y(Alignment::Center).into()
+    row![text(url).size(10.5).font(MONO).color(theme::TEXT).width(Length::Fill), tail].align_y(Alignment::Center).into()
 }

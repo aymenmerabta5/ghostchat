@@ -48,7 +48,7 @@ The internet connection is the other path, and each conversation picks one. When
 - 🔒 **Private messages:** Noise XX end to end, delivered and read receipts. Undelivered messages wait in an encrypted outbox for up to 24 h and are resent when the person is back; meanwhile nearby trusted peers can carry a sealed copy to them, and ghostchat carries theirs.
 - ⭐ **Favorites over the internet:** mutual favorites keep chatting over Nostr, gift-wrapped like iOS.
 - 📍 **Location channels:** block-to-region geohash channels, people lists, teleport, and private messages to people there.
-- 📎 **Files and voice:** photos, voice notes and PDFs, encrypted in private chats and private groups. Nothing auto-plays.
+- 📎 **Files and voice:** photos, voice notes, PDFs, notebooks (`.ipynb`) and code files, encrypted in private chats and private groups. Nothing auto-plays.
 - 🧅 **Opt-in Tor** for every relay connection, fail-closed.
 - 🖥️ **Desktop comforts:** keeps running in the tray, notifications that never show message text, slash commands with completion.
 - 🛡️ **Safety:** QR and fingerprint verification, `/block`, triple-click panic wipe.
@@ -154,7 +154,7 @@ Ghostchat is a working Windows/Linux messenger: iced desktop GUI, installers and
 <details>
 <summary>📎 <b>Files, voice, payments</b></summary>
 
-- Incoming images, voice notes and PDFs (signed broadcast, encrypted in a private chat, or chunked into a group) are validated (MIME allow-list, magic bytes, 1 MiB cap), saved to `Downloads\ghostchat` and shown inline. Voice notes play inside ghostchat. **Nothing auto-plays.**
+- Incoming images, voice notes, PDFs, notebooks and code files (signed broadcast, encrypted in a private chat, or chunked into a group) are validated (MIME allow-list, magic bytes, 1 MiB cap), saved to `Downloads\ghostchat` and shown inline. Voice notes play inside ghostchat. **Nothing auto-plays.**
 - The 🎤 button records a voice note (up to 30 s, Windows). Send files with **+**, drag-and-drop, or `/send <path>`. Ghostchat advertises the iOS private-media capabilities, so phones send encrypted, and missed private files are resent when the phone reconnects.
 - **In a private group** the same **+**, drag-and-drop and `/send` work. Ghostchat shows one progress line for the whole transfer, saves the file on each member's PC, and shows a single line when it is complete. A partial file that stops arriving says so after 10 minutes without a new chunk. An iOS build in the group sees the caption text once per chunk instead of the file.
 - Live push-to-talk from a phone shows "talking live"; the finished note arrives as usual.
@@ -168,6 +168,8 @@ Ghostchat is a working Windows/Linux messenger: iced desktop GUI, installers and
 - **Headless relay:** `ghostchat --relay` runs a separate relay node with no window, for a PC or Linux box left on ([Linux](docs/LINUX.md#headless-relay), [Windows](docs/WINDOWS.md#headless-relay)). **ghostchat/ → debug → what this PC does for the mesh** shows what any instance relays, as counts only.
 - **Notifications:** a toast for private messages and @mentions while ghostchat is in the background; clicking it opens the chat. Toasts name who wrote and where, never the message, because they can show on the lock screen. The panic wipe clears them from the notification history.
 - BitChat-style UI: `ghostchat/ @nick` header with inline nickname editor, IRC-style `<@nick> text [HH:MM:SS]` rows with per-peer colors, unread envelope, taskbar flash, "seen recently" peers, `#geohash` tags and links you can click.
+- **Code in messages:** fenced blocks (```` ``` ```` or `~~~`, any language label) render as a card with syntax colouring, the language name, unwrapped horizontal scrolling and a copy button. The composer is multi-line: **Shift+Enter** adds a line, Enter sends, and pasted code keeps its indentation.
+- **Copy messages:** click **select** in the conversation header. Tick messages, Shift-click to extend a range, **select all**, then **copy** or `Ctrl/Cmd+C`. **Esc** or **done** leaves select mode. The selected messages are copied as text, in thread order.
 - `/` shows matching commands; Up/Down picks, Tab or Enter completes. Settings and info open from the `ghostchat/` title.
 - Safety: `/block` hides a person and keeps their files off disk. `/clear` empties a chat. Triple-click the title (or **panic wipe** in settings) to wipe identity, favorites, bookmarks, history, the outbox, mail you are carrying, and the list of peers this PC has met, after one confirmation.
 - Optional saved history: `/history on` keeps `#mesh` and location lines as plaintext JSON (newest 2,000 per channel). Off by default; `/history off` and the panic wipe delete it.
@@ -224,7 +226,7 @@ cargo run -p ghostchat-app -- --qr-lab mine     # swapped-key QR experiments
 | `/group remove <nick>` | remove a member and rotate the key (creator only; `/group kick` also works) |
 | `/group send <text>` | send to the open group from anywhere; typing in the group also works |
 | `/group list` / `/group` | list your groups / show the open group's roster and epoch |
-| `/send <path>` | send an image, voice note or PDF (max 1 MiB) |
+| `/send <path>` | send an image, voice note, PDF, notebook or code file (max 1 MiB) |
 | `/sendvisible <path>` | private chat with a peer lacking encrypted media: send signed but readable |
 | `/pay <token>` | send a Cashu token (`/pay <token> public` in public chats) |
 | `/block [nick]` / `/unblock [nick]` | hide or unhide someone |

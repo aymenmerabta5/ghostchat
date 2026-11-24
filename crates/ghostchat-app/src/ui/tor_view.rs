@@ -3,6 +3,7 @@
 //! SOCKS port instead of embedding one.
 
 use super::panel::{note, setting_with, toggle, PanelMsg};
+use super::view::SANS;
 use super::{App, Message};
 use crate::mesh_worker::Command;
 use crate::theme;
@@ -89,25 +90,28 @@ impl App {
             vec![setting_with("route relays through tor", tor_about(), Some(toggle(state, msg(TorMsg::Toggle))))];
         items.push(
             row![
-                text("proxy").size(12).color(theme::GRAY),
+                text("proxy").size(10).font(SANS).color(theme::MUTED),
                 text_input(TOR_BROWSER_PROXY, self.tor_draft())
                     .on_input(move |v| msg(TorMsg::Draft(v)))
                     .on_submit(msg(TorMsg::Apply))
-                    .size(13)
-                    .padding([4, 8])
+                    .size(12)
+                    .padding([5, 8])
                     .width(180)
                     .style(theme::composer),
-                button(text("use").size(12)).on_press(msg(TorMsg::Apply)).padding([4, 12]).style(theme::accent_button),
+                button(text("Use").size(10).font(SANS))
+                    .on_press(msg(TorMsg::Apply))
+                    .padding([5, 10])
+                    .style(theme::accent_button),
             ]
             .spacing(8)
             .align_y(Alignment::Center)
             .into(),
         );
         if let Some(err) = &self.panel.tor.error {
-            items.push(text(err.clone()).size(12).color(theme::WARN).into());
+            items.push(text(err.clone()).size(10.5).font(SANS).color(theme::WARN).into());
         }
         let (line, color) = self.tor_status();
-        items.push(text(line).size(12).color(color).into());
+        items.push(text(line).size(10.5).line_height(1.5).font(SANS).color(color).into());
         if !self.tor_on() {
             items
                 .push(note("presence (being counted in location channels) is only sent through tor, like the phones."));
@@ -149,7 +153,9 @@ fn tor_about() -> Element<'static, Message> {
         link("tor service", TOR_SERVICE_DOWNLOAD),
         gray(" (9050)."),
     ])
-    .size(12)
+    .size(10.5)
+    .line_height(1.5)
+    .font(SANS)
     .wrapping(text::Wrapping::Word)
     .into()
 }

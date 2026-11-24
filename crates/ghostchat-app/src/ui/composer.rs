@@ -1,22 +1,28 @@
-//! Composer behavior: where a typed line goes, and the slash-command
-//! suggestion list (Tab completes, Up/Down pick).
+//! Composer behavior: where a typed line goes, the slash-command suggestion
+//! list (Tab completes, Up/Down pick), and the custom focus operation that the
+//! iced 0.13 text editor lacks.
 
 use super::files::SlashKey;
-use super::{composer_id, slash, App, Message};
+use super::{composer_container_id, slash, App, Message};
 use crate::inbox::Conversation;
 use crate::mesh_worker::{self, Command};
-use iced::widget::text_input;
-use iced::Task;
+use iced::advanced::widget::{self, operation, Id, Operation};
+use iced::widget::text_editor;
+use iced::{keyboard, Rectangle, Task};
 
 impl App {
     pub(super) fn command_for(&self, line: &str) -> Option<Command> {
-        let line = line.trim();
-        if line.is_empty() {
+        // Commands are single-token lines; trim for matching, but send plain
+        // messages with their leading indentation intact so pasted code keeps
+        // its shape.
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
             return None;
         }
-        if line.starts_with('/') {
-            return mesh_worker::parse_command_line(line);
+        if trimmed.starts_with('/') {
+            return mesh_worker::parse_command_line(trimmed);
         }
+        let line = line.trim_end();
         match &self.selected {
             Conversation::Mesh => Some(Command::Public(line.into())),
             Conversation::Dm(id) => Some(Command::Private { to: id.clone(), content: line.into() }),
@@ -41,6 +47,7 @@ impl App {
         };
         self.draft = slash::complete(command);
         self.slash_pick = 0;
+        self.replace_composer();
         !command.args.is_empty()
     }
 
@@ -61,7 +68,71 @@ impl App {
     }
 }
 
-/// Keep typing after a completion: focus the composer, cursor at the end.
+/// Enter sends, Shift+Enter breaks the line, and Tab/Up/Down only steer the
+/// suggestion list while it is showing. Everything else is the stock editor.
+pub(super) fn editor_key_binding(
+    suggestions: bool,
+) -> impl Fn(text_editor::KeyPress) -> Option<text_editor::Binding<Message>> {
+    move |press| {
+        if press.status == text_editor::Status::Focused {
+            use keyboard::key::Named;
+            match press.key.as_ref() {
+                keyboard::Key::Named(Named::Enter) if press.modifiers.shift() => {
+                    return Some(text_editor::Binding::Enter);
+                }
+                keyboard::Key::Named(Named::Enter) => {
+                    return Some(text_editor::Binding::Custom(Message::Submit));
+                }
+                keyboard::Key::Named(Named::Tab) if suggestions => {
+                    return Some(text_editor::Binding::Custom(Message::SlashKey(SlashKey::Complete)));
+                }
+                keyboard::Key::Named(Named::ArrowUp) if suggestions => {
+                    return Some(text_editor::Binding::Custom(Message::SlashKey(SlashKey::Up)));
+                }
+                keyboard::Key::Named(Named::ArrowDown) if suggestions => {
+                    return Some(text_editor::Binding::Custom(Message::SlashKey(SlashKey::Down)));
+                }
+                _ => {}
+            }
+        }
+        text_editor::Binding::from_key_press(press)
+    }
+}
+
+/// Keep typing after a completion: focus the editor.
 pub(super) fn focus_composer() -> Task<Message> {
-    Task::batch([text_input::focus(composer_id()), text_input::move_cursor_to_end(composer_id())])
+    widget::operate(FocusEditor { target: composer_container_id().into(), entered: false, done: false })
+}
+
+/// iced 0.13's `text_editor` does not expose an `Id`, so `focusable::focus`
+/// cannot reach it. Descend the tree until the composer's wrapper container is
+/// entered, then focus its first (only) focusable child.
+struct FocusEditor {
+    target: Id,
+    entered: bool,
+    done: bool,
+}
+
+impl<T> Operation<T> for FocusEditor {
+    fn container(
+        &mut self,
+        id: Option<&Id>,
+        _bounds: Rectangle,
+        operate_on_children: &mut dyn FnMut(&mut dyn Operation<T>),
+    ) {
+        if self.done {
+            return;
+        }
+        if id == Some(&self.target) {
+            self.entered = true;
+        }
+        operate_on_children(self);
+    }
+
+    fn focusable(&mut self, state: &mut dyn operation::Focusable, _id: Option<&Id>) {
+        if self.entered && !self.done {
+            state.focus();
+            self.done = true;
+        }
+    }
 }

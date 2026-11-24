@@ -2,12 +2,12 @@
 //! when they name you), geohash `#tags` that join that location channel,
 //! and http(s) links. A message that mentions you is bold.
 
-use super::view::BOLD;
+use super::view::{SANS, SANS_BOLD};
 use super::Message;
 use crate::theme;
 use iced::widget::span;
 use iced::widget::text::Span;
-use iced::{Color, Font};
+use iced::Color;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Token<'a> {
@@ -94,28 +94,28 @@ fn geohash_len(rest: &str) -> Option<usize> {
     valid.then_some(1 + body)
 }
 
-/// Spans for a message body in `color`; `me` is our nickname.
-pub(super) fn body_spans(content: &str, color: Color, me: &str, mentioned: bool) -> Vec<Span<'static, Message>> {
-    let font = if mentioned { BOLD } else { Font::MONOSPACE };
+/// Spans for a message body in `color`; `me` is our nickname. A mention of
+/// us turns orange and semibold without shouting the whole line.
+pub(super) fn body_spans(content: &str, color: Color, me: &str) -> Vec<Span<'static, Message>> {
     tokenize(content)
         .into_iter()
         .map(|token| match token {
-            Token::Text(t) => span(t.to_string()).color(color).font(font),
+            Token::Text(t) => span(t.to_string()).color(color).font(SANS),
             Token::Mention { name, suffix } => {
                 let to_me = match me.split_once('#') {
                     Some(_) => format!("{name}{suffix}").eq_ignore_ascii_case(me),
                     None => !me.is_empty() && name.eq_ignore_ascii_case(me),
                 };
                 let tint = if to_me { theme::ORANGE } else { color };
-                span(format!("@{name}{suffix}")).color(tint).font(BOLD)
+                span(format!("@{name}{suffix}")).color(tint).font(SANS_BOLD)
             }
             Token::Geohash(cell) => span(format!("#{cell}"))
                 .color(theme::GEO)
-                .font(font)
+                .font(SANS)
                 .underline(true)
                 .link(Message::JoinGeohash(cell.to_ascii_lowercase())),
             Token::Url(url) => {
-                span(url.to_string()).color(color).font(font).underline(true).link(Message::OpenUrl(url.to_string()))
+                span(url.to_string()).color(color).font(SANS).underline(true).link(Message::OpenUrl(url.to_string()))
             }
         })
         .collect()

@@ -121,7 +121,15 @@ impl FilePacket {
 }
 
 /// Every extension `mime_for_extension` accepts, for file pickers and hints.
-pub const SENDABLE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "m4a", "mp3", "wav", "ogg", "pdf"];
+pub const SENDABLE_EXTENSIONS: &[&str] = &[
+    // Photos, voice notes and documents.
+    "jpg", "jpeg", "png", "gif", "webp", "m4a", "mp3", "wav", "ogg",
+    "pdf", // Notebooks and source files. Users share code in chat, so these travel
+    // the same 1 MiB BitChat file path as everything else.
+    "ipynb", "rs", "py", "js", "mjs", "jsx", "ts", "tsx", "c", "h", "cpp", "hpp", "cs", "java", "kt", "go", "rb", "php",
+    "swift", "sh", "ps1", "sql", "html", "htm", "css", "json", "toml", "yaml", "yml", "xml", "md", "txt", "csv", "lua",
+    "r", "scala", "dart", "zig", "hs", "ex", "exs",
+];
 
 /// MIME type for a file extension we are willing to send.
 pub fn mime_for_extension(ext: &str) -> Option<&'static str> {
@@ -135,6 +143,43 @@ pub fn mime_for_extension(ext: &str) -> Option<&'static str> {
         "wav" => "audio/wav",
         "ogg" => "audio/ogg",
         "pdf" => "application/pdf",
+        "ipynb" => "application/x-ipynb+json",
+        "rs" => "text/x-rust",
+        "py" => "text/x-python",
+        "js" | "mjs" => "application/javascript",
+        "jsx" => "text/x-jsx",
+        "ts" => "text/x-typescript",
+        "tsx" => "text/x-tsx",
+        "c" => "text/x-c",
+        "h" => "text/x-chdr",
+        "cpp" => "text/x-c++src",
+        "hpp" => "text/x-c++hdr",
+        "cs" => "text/x-csharp",
+        "java" => "text/x-java-source",
+        "kt" => "text/x-kotlin",
+        "go" => "text/x-go",
+        "rb" => "text/x-ruby",
+        "php" => "text/x-php",
+        "swift" => "text/x-swift",
+        "sh" => "text/x-shellscript",
+        "ps1" => "text/x-powershell",
+        "sql" => "application/sql",
+        "html" | "htm" => "text/html",
+        "css" => "text/css",
+        "json" => "application/json",
+        "toml" => "application/toml",
+        "yaml" | "yml" => "application/yaml",
+        "xml" => "text/xml",
+        "md" => "text/markdown",
+        "txt" => "text/plain",
+        "csv" => "text/csv",
+        "lua" => "text/x-lua",
+        "r" => "text/x-r",
+        "scala" => "text/x-scala",
+        "dart" => "text/x-dart",
+        "zig" => "text/x-zig",
+        "hs" => "text/x-haskell",
+        "ex" | "exs" => "text/x-elixir",
         _ => return None,
     })
 }
@@ -151,6 +196,43 @@ fn mime_info(mime: &str) -> Option<(MediaKind, &'static str)> {
         "audio/ogg" => (MediaKind::Audio, "ogg"),
         "application/pdf" => (MediaKind::File, "pdf"),
         "application/octet-stream" => (MediaKind::File, "bin"),
+        "application/x-ipynb+json" => (MediaKind::File, "ipynb"),
+        "text/x-rust" => (MediaKind::File, "rs"),
+        "text/x-python" => (MediaKind::File, "py"),
+        "application/javascript" | "text/javascript" => (MediaKind::File, "js"),
+        "text/x-jsx" => (MediaKind::File, "jsx"),
+        "text/x-typescript" => (MediaKind::File, "ts"),
+        "text/x-tsx" => (MediaKind::File, "tsx"),
+        "text/x-c" => (MediaKind::File, "c"),
+        "text/x-chdr" => (MediaKind::File, "h"),
+        "text/x-c++src" => (MediaKind::File, "cpp"),
+        "text/x-c++hdr" => (MediaKind::File, "hpp"),
+        "text/x-csharp" => (MediaKind::File, "cs"),
+        "text/x-java-source" => (MediaKind::File, "java"),
+        "text/x-kotlin" => (MediaKind::File, "kt"),
+        "text/x-go" => (MediaKind::File, "go"),
+        "text/x-ruby" => (MediaKind::File, "rb"),
+        "text/x-php" => (MediaKind::File, "php"),
+        "text/x-swift" => (MediaKind::File, "swift"),
+        "text/x-shellscript" => (MediaKind::File, "sh"),
+        "text/x-powershell" => (MediaKind::File, "ps1"),
+        "application/sql" => (MediaKind::File, "sql"),
+        "text/html" => (MediaKind::File, "html"),
+        "text/css" => (MediaKind::File, "css"),
+        "application/json" => (MediaKind::File, "json"),
+        "application/toml" => (MediaKind::File, "toml"),
+        "application/yaml" | "text/yaml" => (MediaKind::File, "yaml"),
+        "text/xml" => (MediaKind::File, "xml"),
+        "text/markdown" => (MediaKind::File, "md"),
+        "text/plain" => (MediaKind::File, "txt"),
+        "text/csv" => (MediaKind::File, "csv"),
+        "text/x-lua" => (MediaKind::File, "lua"),
+        "text/x-r" => (MediaKind::File, "r"),
+        "text/x-scala" => (MediaKind::File, "scala"),
+        "text/x-dart" => (MediaKind::File, "dart"),
+        "text/x-zig" => (MediaKind::File, "zig"),
+        "text/x-haskell" => (MediaKind::File, "hs"),
+        "text/x-elixir" => (MediaKind::File, "ex"),
         _ => return None,
     })
 }
@@ -169,8 +251,31 @@ fn magic_matches(ext: &str, d: &[u8]) -> bool {
         "ogg" => starts(b"OggS"),
         "pdf" => starts(b"%PDF"),
         "bin" => !d.is_empty(),
+        "ipynb" => notebook_bytes(d),
+        "rs" | "py" | "js" | "mjs" | "jsx" | "ts" | "tsx" | "c" | "h" | "cpp" | "hpp" | "cs" | "java" | "kt" | "go"
+        | "rb" | "php" | "swift" | "sh" | "ps1" | "sql" | "html" | "htm" | "css" | "json" | "toml" | "yaml" | "yml"
+        | "xml" | "md" | "txt" | "csv" | "lua" | "r" | "scala" | "dart" | "zig" | "hs" | "ex" | "exs" => text_bytes(d),
         _ => false,
     }
+}
+
+/// Text files must be UTF-8 (and not smuggle NULs); anything else is treated
+/// as binary even when it carries a code extension.
+fn text_bytes(d: &[u8]) -> bool {
+    !d.is_empty() && !d.contains(&0) && std::str::from_utf8(d).is_ok()
+}
+
+/// A notebook is a JSON object with `cells` and `nbformat`; requiring both
+/// keeps renamed binaries and arbitrary JSON out of the notebook path.
+fn notebook_bytes(d: &[u8]) -> bool {
+    if !text_bytes(d) {
+        return false;
+    }
+    let Ok(text) = std::str::from_utf8(d) else {
+        return false;
+    };
+    let text = text.trim();
+    text.starts_with('{') && text.ends_with('}') && text.contains("\"cells\"") && text.contains("\"nbformat\"")
 }
 
 #[cfg(test)]
@@ -197,6 +302,32 @@ mod tests {
             assert!(mime_for_extension(ext).is_some(), "{ext}");
         }
         assert!(mime_for_extension("exe").is_none());
+    }
+
+    #[test]
+    fn accepts_code_files_and_notebooks() {
+        let mut file = FilePacket {
+            name: Some("main.rs".into()),
+            mime: Some("text/x-rust".into()),
+            content: b"fn main() {}\n".to_vec(),
+        };
+        assert_eq!(file.validate(), Some((MediaKind::File, "rs")));
+        file.mime = Some("application/json".into());
+        file.content = br#"{"a": 1}"#.to_vec();
+        assert_eq!(file.validate(), Some((MediaKind::File, "json")));
+        file.mime = Some("application/x-ipynb+json".into());
+        file.content = br#"{"cells": [], "nbformat": 4, "nbformat_minor": 5, "metadata": {}}"#.to_vec();
+        assert_eq!(file.validate(), Some((MediaKind::File, "ipynb")));
+    }
+
+    #[test]
+    fn rejects_binary_wearing_a_code_extension() {
+        let mut file =
+            FilePacket { name: Some("main.py".into()), mime: Some("text/x-python".into()), content: vec![0xFF, 0x00] };
+        assert!(file.validate().is_none());
+        file.mime = Some("application/x-ipynb+json".into());
+        file.content = br#"{"cells": []}"#.to_vec();
+        assert!(file.validate().is_none(), "a notebook needs nbformat");
     }
 
     #[test]

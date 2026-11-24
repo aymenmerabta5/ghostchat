@@ -3,7 +3,7 @@
 //! picture of it, or its pasted text.
 
 use super::panel::PanelMsg;
-use super::view::BOLD;
+use super::view::{MONO_SEMIBOLD, SANS, SANS_SEMIBOLD};
 use super::{App, Message};
 use crate::camera::{self, CameraScanner, CameraUpdate};
 use crate::mesh_worker::Command;
@@ -191,9 +191,11 @@ impl App {
                     .padding(4)
                     .style(|_| container::Style::default().background(iced::Color::WHITE)),
                 column![
-                    text("scan to verify me").size(14).font(BOLD).color(theme::GREEN),
+                    text("scan to verify me").size(11.5).font(SANS_SEMIBOLD).color(theme::TEXT),
                     text("a phone scans this, then proves it is talking to this PC. the code is signed and renews every few minutes.")
-                        .size(12)
+                        .size(10)
+                        .line_height(1.55)
+                        .font(SANS)
                         .color(theme::GRAY),
                     row![
                         small_button("copy link", Message::Panel(PanelMsg::Copy(url.clone()))),
@@ -207,13 +209,15 @@ impl App {
             .spacing(16)
             .align_y(Alignment::Center)
             .into(),
-            None => text("QR unavailable").size(12).color(theme::GRAY).into(),
+            None => text("QR unavailable").size(10).font(SANS).color(theme::MUTED).into(),
         };
         let mut items = vec![mine];
-        items.push(text("scan a friend's QR").size(14).font(BOLD).color(theme::GREEN).into());
+        items.push(text("scan a friend's QR").size(11.5).font(SANS_SEMIBOLD).color(theme::TEXT).into());
         items.push(
             text("hold their QR up to the camera, open a screenshot or photo of it, or paste its text:")
-                .size(12)
+                .size(10)
+                .line_height(1.55)
+                .font(SANS)
                 .color(theme::GRAY)
                 .into(),
         );
@@ -222,7 +226,7 @@ impl App {
         if state.camera.is_some() {
             let view: Element<'_, Message> = match &state.camera_view {
                 Some((handle, w, h)) => image(handle.clone()).width(*w as f32).height(*h as f32).into(),
-                None => text("starting camera…").size(12).color(theme::GRAY).into(),
+                None => text("starting camera…").size(10).font(SANS).color(theme::MUTED).into(),
             };
             items.push(view);
         }
@@ -231,8 +235,8 @@ impl App {
                 text_input("bitchat://verify?…", &state.draft)
                     .on_input(move |v| msg(VerifyMsg::Draft(v)))
                     .on_submit(msg(VerifyMsg::Validate))
-                    .size(13)
-                    .padding([4, 8])
+                    .size(12)
+                    .padding([5, 8])
                     .style(theme::composer),
                 small_button("validate", msg(VerifyMsg::Validate)),
                 small_button("open image…", msg(VerifyMsg::OpenImage)),
@@ -241,7 +245,8 @@ impl App {
             .into(),
         );
         if let Some(err) = &state.error {
-            let mut line = row![text(err.clone()).size(12).color(theme::WARN).width(Length::Fill)].spacing(8);
+            let mut line =
+                row![text(err.clone()).size(10.5).font(SANS).color(theme::WARN).width(Length::Fill)].spacing(8);
             if err == camera::DENIED {
                 line = line.push(small_button("open settings", msg(VerifyMsg::CameraSettings)));
             }
@@ -256,14 +261,14 @@ impl App {
             None => None,
         };
         if let Some((line, color)) = result {
-            items.push(text(line).size(13).font(BOLD).color(color).into());
+            items.push(text(line).size(10.5).font(MONO_SEMIBOLD).color(color).into());
         }
         items
     }
 }
 
 fn small_button(label: &str, press: Message) -> button::Button<'_, Message> {
-    button(text(label).size(12)).on_press(press).padding([4, 12]).style(theme::accent_button)
+    button(text(label).size(10).font(SANS)).on_press(press).padding([5, 10]).style(theme::accent_button)
 }
 
 async fn pick_and_decode() -> Result<String, String> {

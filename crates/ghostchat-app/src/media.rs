@@ -5,7 +5,7 @@ use crate::app_dirs;
 use crate::mesh_worker::{send, UiEvent, Worker};
 use anyhow::{bail, Context, Result};
 use ghostchat_core::{ChatLine, IncomingFile};
-use ghostchat_protocol::file_packet::{mime_for_extension, MAX_FILE_BYTES, SENDABLE_EXTENSIONS};
+use ghostchat_protocol::file_packet::{mime_for_extension, MAX_FILE_BYTES};
 use ghostchat_protocol::MediaKind;
 use ghostchat_protocol::{FilePacket, PeerId};
 use std::path::{Path, PathBuf};
@@ -148,11 +148,16 @@ fn ios_style_name(ext: &str) -> Option<String> {
 pub(crate) fn load_outgoing(path: &Path, rename: Option<fn(&str) -> Option<String>>) -> Result<FilePacket> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default();
     let Some(mime) = mime_for_extension(ext) else {
-        bail!("only {} files can be sent", SENDABLE_EXTENSIONS.join(", "));
+        bail!("unsupported file type; send photos, audio, PDFs, notebooks or text/source files");
     };
     let size = std::fs::metadata(path).with_context(|| format!("{}", path.display()))?.len();
     if size as usize > MAX_FILE_BYTES {
-        bail!("{} is over the 1 MiB BitChat limit", human_size(size as usize));
+        let hint = if ext.eq_ignore_ascii_case("ipynb") {
+            " (notebooks with saved images or outputs often exceed it - clear outputs and try again)"
+        } else {
+            ""
+        };
+        bail!("{} is over the 1 MiB BitChat limit{hint}", human_size(size as usize));
     }
     let original = path.file_name().map(|n| n.to_string_lossy().into_owned());
     let file = FilePacket {

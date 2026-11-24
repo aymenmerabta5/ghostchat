@@ -7,38 +7,45 @@ use crate::inbox::Conversation;
 use crate::roster::PeerEntry;
 use crate::theme;
 use iced::font::{Style as FontStyle, Weight};
-use iced::widget::{button, column, container, row, scrollable, text, text_input, Space};
+use iced::widget::{button, column, container, row, scrollable, text, text_input, tooltip, Space};
 use iced::{Alignment, Color, Element, Font, Length};
 
-/// The logo mark: white monospace "WIT" on black, drawn as text so it stays
+/// The logo mark: white monospace "GH" on graphite, drawn as text so it stays
 /// sharp at every display scale (a shrunken bitmap blurs the strokes).
 fn logo() -> Element<'static, Message> {
-    container(text("WIT").size(10).font(BOLD).color(Color::WHITE))
-        .padding([4, 3])
+    container(text("GH").size(9).font(BOLD).color(Color::WHITE))
+        .padding([6, 5])
         .style(|_| container::Style {
-            background: Some(Color::BLACK.into()),
-            border: iced::Border { color: theme::GRAY, width: 1.0, radius: 3.0.into() },
+            background: Some(theme::BG_ROW.into()),
+            border: iced::Border { color: theme::DIVIDER, width: 1.0, radius: 6.0.into() },
             ..container::Style::default()
         })
         .into()
 }
 
+/// Prose and interface labels.
+pub(super) const SANS: Font = Font::DEFAULT;
+pub(super) const SANS_BOLD: Font = Font { weight: Weight::Bold, ..Font::DEFAULT };
+pub(super) const SANS_SEMIBOLD: Font = Font { weight: Weight::Semibold, ..Font::DEFAULT };
+/// Handles, channel names, timestamps and code.
+pub(super) const MONO: Font = Font::MONOSPACE;
+pub(super) const MONO_SEMIBOLD: Font = Font { weight: Weight::Semibold, ..Font::MONOSPACE };
 pub(super) const BOLD: Font = Font { weight: Weight::Bold, ..Font::MONOSPACE };
 /// Consolas lacks the star, moon and envelope glyphs.
 pub(super) const SYMBOL: Font = Font::with_name("Segoe UI Symbol");
-pub(super) const ITALIC: Font = Font { style: FontStyle::Italic, ..Font::MONOSPACE };
+pub(super) const ITALIC: Font = Font { style: FontStyle::Italic, ..Font::DEFAULT };
 
 impl App {
     pub(super) fn view(&self) -> Element<'_, Message> {
         let body = row![
-            container(self.sidebar()).width(280).height(Length::Fill).style(theme::sidebar),
+            container(self.sidebar()).width(300).height(Length::Fill).style(theme::sidebar),
             container(self.main_pane()).width(Length::Fill).height(Length::Fill).style(theme::main_pane),
         ]
         .height(Length::Fill);
         container(column![self.top_bar(), body]).width(Length::Fill).height(Length::Fill).style(theme::main_pane).into()
     }
 
-    /// `ghostchat/ @nick` on the left, people count and unread envelope on the right.
+    /// `ghostchat/ @nick` on the left, presence and unread on the right.
     /// The count is the open location channel's (as its HERE IN list), else the mesh's,
     /// as on iOS. Triple-clicking the title is the panic wipe, as on iOS.
     fn top_bar(&self) -> Element<'_, Message> {
@@ -46,40 +53,51 @@ impl App {
             Conversation::Geo(cell) => self.location.people.people(cell, &self.nickname).len(),
             _ => self.roster.online_count(),
         };
-        let people_color = if people > 0 { theme::GREEN } else { theme::GRAY };
         let noun = if people == 1 { "person" } else { "people" };
-        let mut right = row![].spacing(14).align_y(Alignment::Center);
+        let presence = container(
+            row![
+                text("●").size(8).color(if people > 0 { theme::GREEN } else { theme::MUTED }),
+                text(format!("{people} {noun}")).size(11).color(if people > 0 { theme::TEXT } else { theme::GRAY }),
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center),
+        )
+        .padding([4, 10])
+        .style(theme::pill);
+        let mut right = row![presence].spacing(8).align_y(Alignment::Center);
         let unread = self.unread_dms();
         if unread > 0 {
-            right = right.push(
-                button(text(format!("✉ {unread}")).size(14).font(SYMBOL).color(theme::ORANGE))
-                    .on_press(Message::OpenUnread)
-                    .padding([2, 6])
-                    .style(theme::icon_button),
-            );
+            let label = row![
+                text("●").size(7).color(theme::ORANGE),
+                text(format!("{unread} unread")).size(11).color(theme::TEXT),
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center);
+            right = right.push(button(label).on_press(Message::OpenUnread).padding([4, 10]).style(theme::chip_button));
         }
-        right = right.push(text(format!("{people} {noun}")).size(13).color(people_color));
         container(
             row![
                 logo(),
-                button(text("ghostchat/").size(18).font(BOLD).color(theme::GREEN))
+                button(text("ghostchat").size(14).font(SANS_BOLD).color(theme::TEXT))
                     .on_press(Message::TitleClicked)
-                    .padding(0)
+                    .padding([2, 0])
                     .style(theme::icon_button),
-                text("@").size(16).color(theme::GRAY),
+                text("/").size(14).color(theme::MUTED),
+                text("@").size(12).font(MONO).color(theme::MUTED),
                 text_input("nickname", &self.nick_draft)
                     .on_input(Message::NickChanged)
                     .on_submit(Message::NickSubmit)
-                    .size(16)
-                    .padding([2, 4])
-                    .width(220)
+                    .size(12)
+                    .font(MONO)
+                    .padding([3, 4])
+                    .width(170)
                     .style(theme::nick_input),
                 Space::with_width(Length::Fill),
                 right,
             ]
-            .spacing(2)
+            .spacing(7)
             .align_y(Alignment::Center)
-            .padding([8, 14]),
+            .padding([9, 18]),
         )
         .width(Length::Fill)
         .style(theme::header_bar)
@@ -95,24 +113,32 @@ impl App {
             }
         }
         items.push(
-            button(text("+ new group").size(12).color(theme::GREEN_DIM))
-                .on_press(Message::Compose("/group create ".into()))
-                .padding([4, 10])
-                .width(Length::Fill)
-                .style(theme::conv_button(false))
-                .into(),
+            button(
+                row![text("+").size(12).color(theme::GREEN_DIM), text("new group").size(11).color(theme::GRAY)]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+            )
+            .on_press(Message::Compose("/group create ".into()))
+            .padding([5, 10])
+            .width(Length::Fill)
+            .style(theme::conv_button(false))
+            .into(),
         );
         items.push(section("LOCATION"));
         for cell in self.location_cells() {
             items.push(self.conv_row(Conversation::Geo(cell), None));
         }
         items.push(
-            button(text("#location channels…").size(12).color(theme::GEO))
-                .on_press(Message::Location(super::location::LocMsg::Open))
-                .padding([4, 10])
-                .width(Length::Fill)
-                .style(theme::conv_button(self.location.open))
-                .into(),
+            button(
+                row![text("+").size(12).color(theme::GEO), text("location channels").size(11).color(theme::GRAY)]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+            )
+            .on_press(Message::Location(super::location::LocMsg::Open))
+            .padding([5, 10])
+            .width(Length::Fill)
+            .style(theme::conv_button(self.location.open))
+            .into(),
         );
         if let Conversation::Geo(cell) = &self.selected {
             items.push(section(format!("HERE IN #{cell}")));
@@ -140,7 +166,7 @@ impl App {
                 std::time::Instant::now(),
             );
             for line in hint {
-                items.push(text(format!("  {line}")).size(12).color(theme::GRAY).into());
+                items.push(text(format!("  {line}")).size(11).line_height(1.45).color(theme::GRAY).into());
             }
         }
         for peer in online {
@@ -161,12 +187,24 @@ impl App {
                 items.push(self.conv_row(Conversation::Dm(peer.id.clone()), Some(peer)));
             }
         }
-        let list = scrollable(column(items).spacing(4)).height(Length::Fill);
-        column![list, text(radio_note(self.advertising)).size(11).color(theme::GRAY),]
-            .spacing(6)
-            .padding(10)
-            .width(Length::Fill)
-            .into()
+        let list = scrollable(column(items).spacing(1)).height(Length::Fill);
+        let (radio, radio_color) = radio_status(self.advertising);
+        let status = tooltip(
+            row![text("●").size(6).color(radio_color), text(radio).size(9).font(SANS).color(theme::MUTED)]
+                .spacing(6)
+                .align_y(Alignment::Center),
+            text(radio_note(self.advertising)).size(11).line_height(1.4),
+            tooltip::Position::Top,
+        );
+        column![
+            list,
+            container(Space::with_height(1)).width(Length::Fill).style(theme::rule),
+            container(status).padding([10, 6]).width(Length::Fill),
+        ]
+        .spacing(0)
+        .padding(iced::Padding { top: 8.0, right: 10.0, bottom: 10.0, left: 10.0 })
+        .width(Length::Fill)
+        .into()
     }
 
     /// Joined channels plus saved ones still connecting.
@@ -184,60 +222,79 @@ impl App {
         let selected = self.selected == conv;
         let unread = self.inbox.unread(&conv);
         let mut head = row![].spacing(6).align_y(Alignment::Center);
+        // Channel names are identifiers: mono and calm. People get the sans
+        // face, with colour only while they are actually reachable.
         match (&conv, peer) {
             (Conversation::Geo(cell), _) => {
                 let color = if self.joined.contains(cell) { theme::GEO } else { theme::GRAY };
-                head = head.push(text(format!("#{cell}")).size(15).color(color));
+                head = head.push(text(format!("#{cell}")).size(12).font(MONO).color(color));
             }
             (Conversation::GeoDm { cell, pubkey }, _) => {
                 head = head.push(
                     text(format!("#{cell}/@{}", self.geo_dm_name(cell, pubkey)))
-                        .size(15)
+                        .size(11.5)
+                        .font(MONO)
                         .color(theme::peer_color(pubkey)),
                 );
             }
             (Conversation::Group(id), _) => {
                 let group = self.group_summary(id);
                 let name = group.map(|g| g.name.clone()).unwrap_or_else(|| short_group(id));
-                head = head.push(text("#").size(14).color(theme::GREEN_DIM));
-                head = head.push(text(name).size(15).color(theme::GREEN));
+                head = head.push(text("#").size(12).font(MONO).color(theme::MUTED));
+                head = head.push(text(name).size(12).font(BOLD).color(if selected {
+                    theme::GREEN_SOFT
+                } else {
+                    theme::TEXT
+                }));
                 if let Some(group) = group {
                     if group.is_creator {
-                        head = head.push(text("creator").size(10).color(theme::GRAY));
+                        head = head.push(text("CREATOR").size(8).font(SANS_BOLD).color(theme::MUTED));
                     }
                     let online = group.members.iter().filter(|m| m.online).count();
                     if online > 1 {
-                        head = head.push(text(format!("{online} on")).size(10).color(theme::GREEN_DIM));
+                        head = head.push(text(format!("{online} ON")).size(8).font(SANS_BOLD).color(theme::GREEN_DIM));
                     }
                 }
             }
-            (_, None) => head = head.push(text("#mesh").size(15).color(theme::GREEN)),
+            (_, None) => {
+                head = head.push(text("#mesh").size(12).font(BOLD).color(if selected {
+                    theme::GREEN_SOFT
+                } else {
+                    theme::TEXT
+                }));
+            }
             (_, Some(p)) => {
                 let (fav, fav_color) = self.favorite_mark(p);
-                head = head.push(text(fav).size(13).font(SYMBOL).color(fav_color));
+                head = head.push(text(fav).size(11).font(SYMBOL).color(fav_color));
+                head = head.push(text("●").size(6).color(if p.online { theme::GREEN } else { theme::MUTED }));
                 let nick_color = if p.online { theme::peer_color(&p.id) } else { theme::GRAY };
-                head = head.push(text(self.display_name(&p.id)).size(15).color(nick_color));
+                head = head.push(text(self.display_name(&p.id)).size(12.5).font(SANS_SEMIBOLD).color(nick_color));
                 if self.is_verified(p) {
-                    head = head.push(text("✓").size(13).font(SYMBOL).color(theme::VERIFIED));
+                    head = head.push(text("✓").size(11).font(SYMBOL).color(theme::VERIFIED));
                 }
                 if self.roster.session(&p.id) == Some("secured") {
-                    head = head.push(text("e2e").size(10).color(theme::GREEN_DIM));
+                    head = head.push(text("E2E").size(8).font(SANS_BOLD).color(theme::GREEN_DIM));
                 }
                 if !p.online && self.reachable_by_nostr(p) {
-                    head = head.push(text("nostr").size(10).color(theme::GEO));
+                    head = head.push(text("NOSTR").size(8).font(SANS_BOLD).color(theme::GEO));
                 }
             }
         }
         head = head.push(Space::with_width(Length::Fill));
         if unread > 0 {
             head = head.push(
-                container(text(unread.to_string()).size(11).color(theme::BG)).padding([1, 7]).style(theme::badge),
+                container(text(unread.to_string()).size(9).font(SANS_BOLD).color(theme::BG))
+                    .padding([2, 7])
+                    .style(theme::badge),
             );
         }
-        let body = column![head, text(self.preview(&conv)).size(11).color(theme::GRAY)].spacing(2);
+        let preview_color = if unread > 0 { theme::TEXT } else { theme::GRAY };
+        let body = column![head, text(self.preview(&conv)).size(10.5).font(SANS).color(preview_color)]
+            .spacing(3)
+            .width(Length::Fill);
         button(body)
             .on_press(Message::Select(conv))
-            .padding([6, 10])
+            .padding([7, 10])
             .width(Length::Fill)
             .style(theme::conv_button(selected))
             .into()
@@ -288,9 +345,15 @@ impl App {
         self.inbox
             .last(conv)
             .map(|l| {
-                let body: String = l.content.chars().take(28).collect();
+                // One clipped line: collapse a pasted snippet's whitespace so
+                // the sidebar never grows a second row or breaks mid-word.
+                let flat = l.content.split_whitespace().collect::<Vec<_>>().join(" ");
+                let mut body: String = flat.chars().take(30).collect();
+                if flat.chars().count() > 30 {
+                    body.push('…');
+                }
                 match conv {
-                    _ if l.is_self => format!("you: {body}"),
+                    _ if l.is_self => format!("You: {body}"),
                     Conversation::Mesh | Conversation::Geo(_) | Conversation::Group(_) => {
                         format!("{}: {body}", self.sender_name(l))
                     }
@@ -323,7 +386,8 @@ impl App {
         } else {
             self.thread()
         };
-        pane.push(thread).push(self.composer()).width(Length::Fill).height(Length::Fill).into()
+        let bottom = if self.select_mode { self.selection_bar() } else { self.composer() };
+        pane.push(thread).push(bottom).width(Length::Fill).height(Length::Fill).into()
     }
 
     fn channel_header(&self) -> Element<'_, Message> {
@@ -335,7 +399,7 @@ impl App {
         let (title, title_color, kind, actions): (String, Color, String, Element<'_, Message>) = match &self.selected {
             Conversation::Mesh => (
                 "#mesh".into(),
-                theme::GREEN,
+                theme::TEXT,
                 match self.mesh_talkers() {
                     Some(who) => format!("● {who} talking live - the voice note follows"),
                     None => "public · bluetooth mesh".into(),
@@ -374,7 +438,7 @@ impl App {
                 let label = if self.show_group_members { "hide members" } else { "members" };
                 (
                     format!("#{name}"),
-                    theme::GREEN,
+                    theme::TEXT,
                     format!("private group · {members} members · {online} online · epoch {epoch}"),
                     row![
                         button(text(label).size(12))
@@ -391,17 +455,36 @@ impl App {
                 )
             }
         };
+        let select_label = if self.select_mode { "Cancel select" } else { "Select" };
+        let selectable = self.inbox.visible(&self.selected).iter().any(|e| !e.system && !e.line.id.is_empty());
+        let mut controls = row![].spacing(4).align_y(Alignment::Center);
+        if self.select_mode || selectable {
+            controls = controls.push(
+                button(text(select_label).size(11).font(SANS))
+                    .on_press(Message::ToggleSelectMode)
+                    .padding([4, 9])
+                    .style(theme::accent_button),
+            );
+        }
+        controls = controls.push(actions);
         container(
             row![
-                column![text(title).size(18).font(BOLD).color(title_color), text(kind).size(11).color(theme::GRAY),]
-                    .spacing(2),
+                column![
+                    text(title).size(16).font(MONO_SEMIBOLD).color(title_color),
+                    text(kind).size(10.5).font(SANS).color(theme::GRAY),
+                ]
+                .spacing(3),
                 Space::with_width(Length::Fill),
-                column![text(self.visible_status()).size(11).color(status_color), self.reset_offer(), actions]
-                    .align_x(Alignment::End)
-                    .spacing(4),
+                column![
+                    text(self.visible_status()).size(10).font(SANS).color(status_color),
+                    self.reset_offer(),
+                    controls,
+                ]
+                .align_x(Alignment::End)
+                .spacing(5),
             ]
             .align_y(Alignment::Center)
-            .padding([8, 16]),
+            .padding([11, 20]),
         )
         .width(Length::Fill)
         .style(theme::header_bar)
@@ -492,6 +575,15 @@ fn short_group(id: &str) -> String {
     id.chars().take(8).collect()
 }
 
+/// The sidebar's one-line radio state; the full sentence lives in its tooltip.
+fn radio_status(advertising: Option<bool>) -> (&'static str, Color) {
+    match advertising {
+        Some(true) => ("Bluetooth · visible", theme::GREEN),
+        Some(false) => ("Bluetooth · central only", theme::GRAY),
+        None => ("Bluetooth off", theme::MUTED),
+    }
+}
+
 /// Sidebar footer: what the radio is really doing, no stronger.
 fn radio_note(advertising: Option<bool>) -> &'static str {
     match advertising {
@@ -502,8 +594,8 @@ fn radio_note(advertising: Option<bool>) -> &'static str {
 }
 
 fn section<'a>(label: impl text::IntoFragment<'a>) -> Element<'a, Message> {
-    container(text(label).size(10).color(theme::GRAY))
-        .padding(iced::Padding { top: 10.0, right: 4.0, bottom: 2.0, left: 4.0 })
+    container(text(label).size(8.5).font(SANS_BOLD).color(theme::MUTED))
+        .padding(iced::Padding { top: 16.0, right: 4.0, bottom: 4.0, left: 8.0 })
         .into()
 }
 

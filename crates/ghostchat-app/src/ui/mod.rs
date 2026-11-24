@@ -4,6 +4,7 @@
 
 mod actions;
 mod alerts;
+mod code;
 mod composer;
 mod debug_view;
 mod diagnostics;
@@ -36,7 +37,7 @@ use anyhow::Result;
 use composer::focus_composer;
 use files::SlashKey;
 use ghostchat_nostr::Transport;
-use iced::widget::text_input;
+use iced::widget::{container, text_editor};
 use iced::{window, Font, Subscription, Task};
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -75,6 +76,8 @@ struct App {
     draft: String,
     /// Half-typed lines of the other chats, stashed when the user switches.
     drafts: HashMap<Conversation, String>,
+    /// Multi-line editor backing `draft` (pasted code keeps its newlines).
+    composer: text_editor::Content,
     inbox: Inbox,
     roster: Roster,
     social: Social,
@@ -95,6 +98,12 @@ struct App {
     /// `None` until Bluetooth starts (or when there is no adapter).
     advertising: Option<bool>,
     selected: Conversation,
+    /// Messages are being picked for copying; the composer steps aside.
+    select_mode: bool,
+    selected_lines: BTreeSet<String>,
+    /// Last plain click in select mode, for shift-click ranges.
+    select_anchor: Option<String>,
+    shift_held: bool,
     show_fingerprint: bool,
     /// The open group's roster panel is showing.
     show_group_members: bool,
@@ -137,8 +146,23 @@ const BUSY_TICK: Duration = Duration::from_millis(200);
 /// iOS caps a burst at 120 s; a talker that vanished without END is stale.
 const TALKING_TIMEOUT: Duration = Duration::from_secs(125);
 
-fn composer_id() -> text_input::Id {
-    text_input::Id::new("composer")
+/// Wrapper id used by the custom focus operation (`text_editor` has no id of
+/// its own in iced 0.13).
+fn composer_container_id() -> container::Id {
+    container::Id::new("composer")
+}
+
+/// `Content::text` appends a synthetic newline to its last line; rebuilding
+/// from the editor's lines keeps the draft exactly what the user typed.
+fn editor_text(content: &text_editor::Content) -> String {
+    let mut text = String::new();
+    for (i, line) in content.lines().enumerate() {
+        if i > 0 {
+            text.push('\n');
+        }
+        text.push_str(&line);
+    }
+    text
 }
 
 /// iced has no blur event, so a click or keystroke elsewhere stands in for
@@ -161,6 +185,11 @@ fn leaves_nick_field(message: &Message) -> bool {
             | Message::GroupLeave
             | Message::Compose(_)
             | Message::JoinGeohash(_)
+            | Message::ToggleSelectMode
+            | Message::SelectLine(_)
+            | Message::SelectAll
+            | Message::CopySelected
+            | Message::CopyText(_)
             | Message::Location(location::LocMsg::Open)
     )
 }
@@ -168,12 +197,25 @@ fn leaves_nick_field(message: &Message) -> bool {
 #[derive(Debug, Clone)]
 enum Message {
     Tick,
-    DraftChanged(String),
+    /// An edit or cursor move in the multi-line composer.
+    DraftChanged(text_editor::Action),
     Submit,
     NickChanged(String),
     NickSubmit,
     Select(Conversation),
     OpenUnread,
+    /// Enter or leave message-picking mode.
+    ToggleSelectMode,
+    /// Pick one message (shift-click extends from the anchor).
+    SelectLine(String),
+    SelectAll,
+    CopySelected,
+    /// Write text (a code block, usually) to the clipboard.
+    CopyText(String),
+    /// Shift is held, for shift-click range selection.
+    ShiftChanged(bool),
+    /// Escape leaves select mode.
+    CancelSelection,
     ToggleFavorite(String),
     ToggleVerified(String),
     ToggleFingerprint,
@@ -243,6 +285,7 @@ impl App {
             status: error.clone().unwrap_or_else(|| "starting mesh…".into()),
             draft: String::new(),
             drafts: HashMap::new(),
+            composer: text_editor::Content::new(),
             inbox: Inbox::default(),
             roster: Roster::default(),
             social,
@@ -257,6 +300,10 @@ impl App {
             relaunching: false,
             advertising: None,
             selected: Conversation::Mesh,
+            select_mode: false,
+            selected_lines: BTreeSet::new(),
+            select_anchor: None,
+            shift_held: false,
             show_fingerprint: false,
             show_group_members: false,
             title_clicks: Vec::new(),
@@ -282,7 +329,7 @@ impl App {
         // Presence heartbeats wait for a fix; without one phones never count us.
         let locate = if app.social.location_enabled { app.start_locating() } else { Task::none() };
         let start = app.start_hidden(background);
-        (app, Task::batch([icons, locate, start]))
+        (app, Task::batch([icons, locate, start, focus_composer()]))
     }
 
     /// Offline roster rows for saved contacts, the Nostr contact list for
@@ -334,10 +381,20 @@ impl App {
                 self.offer_reset = false;
                 self.send(Command::ResetBluetooth);
             }
-            Message::Focus(on) => self.background.focused = on,
-            Message::DraftChanged(value) => {
-                self.draft = value;
-                self.slash_pick = 0;
+            Message::Focus(on) => {
+                self.background.focused = on;
+                // Shift released outside the window never sends its own event.
+                if !on {
+                    self.shift_held = false;
+                }
+            }
+            Message::DraftChanged(action) => {
+                let edited = action.is_edit();
+                self.composer.perform(action);
+                if edited {
+                    self.draft = editor_text(&self.composer);
+                    self.slash_pick = 0;
+                }
             }
             Message::Submit => {
                 // Enter on a half-typed command takes the highlighted suggestion.
@@ -347,8 +404,15 @@ impl App {
                         return focus_composer();
                     }
                 }
-                let line = self.draft.trim().to_string();
-                self.draft.clear();
+                let line = self.draft.trim_end().to_string();
+                if !line.starts_with('/') && line.len() > ghostchat_protocol::message::MAX_CONTENT_BYTES {
+                    self.set_error(
+                        "message is over the 64 KiB mesh limit - split it, or send it as a .txt/.ipynb attachment"
+                            .into(),
+                    );
+                    return focus_composer();
+                }
+                self.clear_composer();
                 if !self.run_local(&line) {
                     match self.command_for(&line) {
                         Some(cmd) => self.send(cmd),
@@ -357,6 +421,36 @@ impl App {
                         }
                         None => {}
                     }
+                }
+                return focus_composer();
+            }
+            Message::ToggleSelectMode => {
+                self.toggle_select_mode();
+                return if self.select_mode { Task::none() } else { focus_composer() };
+            }
+            Message::SelectLine(id) => self.select_line(&id),
+            Message::SelectAll => self.select_all(),
+            Message::CopySelected => {
+                if !self.select_mode {
+                    return Task::none();
+                }
+                let (text, count) = self.selected_text();
+                if count > 0 {
+                    self.status = format!("copied {count} message{}", if count == 1 { "" } else { "s" });
+                    self.status_seen = (self.status.clone(), Instant::now());
+                    return iced::clipboard::write(text);
+                }
+            }
+            Message::CopyText(text) => {
+                self.status = "code copied to clipboard".into();
+                self.status_seen = (self.status.clone(), Instant::now());
+                return iced::clipboard::write(text);
+            }
+            Message::ShiftChanged(held) => self.shift_held = held,
+            Message::CancelSelection => {
+                if self.select_mode {
+                    self.exit_select_mode();
+                    return focus_composer();
                 }
             }
             Message::NickChanged(value) => self.nick_draft = value,
@@ -396,6 +490,7 @@ impl App {
             Message::Compose(text) => {
                 self.draft = text;
                 self.slash_pick = 0;
+                self.replace_composer();
                 return focus_composer();
             }
             Message::LeaveGeo(cell) => self.leave_geo(&cell),
@@ -487,6 +582,7 @@ impl App {
                 self.drafts.insert(outgoing, std::mem::take(&mut self.draft));
             }
             self.draft = self.drafts.remove(&conv).unwrap_or_default();
+            self.replace_composer();
             // An error about one chat should not sit in the next chat's
             // header. Errors about the app itself (radio, storage) stay.
             if self.error_conv.take().is_some() {
@@ -494,12 +590,101 @@ impl App {
                 self.status.clear();
             }
         }
+        self.exit_select_mode();
         self.set_panel_tab(None);
         self.panel.confirm_wipe = false;
         self.close_sheet();
         self.selected = conv;
         self.inbox.open(&self.selected);
         self.send_read_receipts();
+    }
+
+    /// Put `draft` back into the multi-line editor, cursor at the end.
+    fn replace_composer(&mut self) {
+        self.composer = text_editor::Content::with_text(&self.draft);
+        self.composer.perform(text_editor::Action::Move(text_editor::Motion::End));
+    }
+
+    fn clear_composer(&mut self) {
+        self.draft.clear();
+        self.composer = text_editor::Content::new();
+    }
+
+    fn exit_select_mode(&mut self) {
+        self.select_mode = false;
+        self.selected_lines.clear();
+        self.select_anchor = None;
+    }
+
+    fn toggle_select_mode(&mut self) {
+        self.select_mode = !self.select_mode;
+        self.selected_lines.clear();
+        self.select_anchor = None;
+    }
+
+    /// Toggle one message, or extend from the last plain click with Shift.
+    fn select_line(&mut self, id: &str) {
+        if !self.select_mode || id.is_empty() {
+            return;
+        }
+        let visible: Vec<String> = self
+            .inbox
+            .visible(&self.selected)
+            .into_iter()
+            .filter(|entry| !entry.system && !entry.line.id.is_empty())
+            .map(|entry| entry.line.id.clone())
+            .collect();
+        if self.shift_held {
+            if let Some(anchor) = self.select_anchor.as_deref() {
+                let a = visible.iter().position(|line| line == anchor);
+                let b = visible.iter().position(|line| line == id);
+                if let (Some(a), Some(b)) = (a, b) {
+                    let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+                    self.selected_lines.clear();
+                    self.selected_lines.extend(visible[lo..=hi].iter().cloned());
+                    return;
+                }
+            }
+        }
+        if !self.selected_lines.remove(id) {
+            self.selected_lines.insert(id.to_string());
+        }
+        self.select_anchor = Some(id.to_string());
+    }
+
+    fn select_all(&mut self) {
+        self.selected_lines = self
+            .inbox
+            .visible(&self.selected)
+            .into_iter()
+            .filter(|entry| !entry.system && !entry.line.id.is_empty())
+            .map(|entry| entry.line.id.clone())
+            .collect();
+        self.select_anchor = None;
+    }
+
+    /// How many picked messages would actually contribute text to the
+    /// clipboard, matching [`Self::selected_text`].
+    fn selected_count(&self) -> usize {
+        self.inbox
+            .visible(&self.selected)
+            .into_iter()
+            .filter(|entry| !entry.system && self.selected_lines.contains(&entry.line.id))
+            .filter(|entry| !entry.line.content.is_empty())
+            .count()
+    }
+
+    /// Selected bodies in thread order, and how many actually had text.
+    fn selected_text(&self) -> (String, usize) {
+        let bodies: Vec<&str> = self
+            .inbox
+            .visible(&self.selected)
+            .into_iter()
+            .filter(|entry| !entry.system && self.selected_lines.contains(&entry.line.id))
+            .map(|entry| entry.line.content.as_str())
+            .filter(|body| !body.is_empty())
+            .collect();
+        (bodies.join("\n\n"), bodies.len())
     }
 
     fn send(&self, cmd: Command) {
@@ -641,4 +826,18 @@ fn load_social() -> (Social, Option<PathBuf>, Option<String>) {
 /// Flash the taskbar button until the window is focused (no-op when focused).
 fn flash_taskbar() -> Task<Message> {
     window::get_latest().and_then(|id| window::request_user_attention(id, Some(window::UserAttention::Informational)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn composer_text_matches_what_was_typed() {
+        assert_eq!(editor_text(&text_editor::Content::with_text("")), "");
+        assert_eq!(editor_text(&text_editor::Content::with_text("one line")), "one line");
+        assert_eq!(editor_text(&text_editor::Content::with_text("one\ntwo")), "one\ntwo");
+        // `Content` normalizes away one trailing line break.
+        assert_eq!(editor_text(&text_editor::Content::with_text("trailing\n")), "trailing");
+    }
 }

@@ -1,41 +1,64 @@
-//! BitChat "matrix" palette: black ground, terminal green, monospace.
+//! GhostChat's visual system: graphite ground, mint signal, quiet type.
+//!
+//! One palette, one radius scale and one button pair. Bright green is a
+//! signal (presence, send, selected), never the default text colour; prose
+//! sits in the system sans while handles, timestamps and code stay mono.
 
-use iced::widget::{button, container, text_input};
+use iced::widget::{button, container, text_editor, text_input};
 use iced::{Background, Border, Color, Shadow, Theme};
 
-pub const GREEN: Color = Color::from_rgb(0.196, 0.843, 0.294);
-pub const GREEN_DIM: Color = Color::from_rgb(0.12, 0.45, 0.18);
-pub const GREEN_SOFT: Color = Color::from_rgb(0.55, 0.90, 0.60);
-pub const MUTED: Color = Color::from_rgb(0.35, 0.55, 0.38);
-pub const BG: Color = Color::BLACK;
-pub const BG_SIDE: Color = Color::from_rgb(0.02, 0.04, 0.02);
-pub const BG_ROW: Color = Color::from_rgb(0.05, 0.09, 0.05);
-pub const BG_ROW_SEL: Color = Color::from_rgb(0.07, 0.16, 0.08);
-pub const DIVIDER: Color = Color::from_rgb(0.12, 0.22, 0.12);
-pub const ALERT: Color = Color::from_rgb(0.85, 0.22, 0.18);
-pub const WARN: Color = Color::from_rgb(1.0, 0.62, 0.04);
-/// BitChat marks our own lines and the unread envelope in system orange.
-pub const ORANGE: Color = Color::from_rgb(1.0, 0.584, 0.0);
-pub const GRAY: Color = Color::from_rgba(0.56, 0.56, 0.58, 0.7);
-pub const GOLD: Color = Color::from_rgb(1.0, 0.80, 0.0);
-pub const VERIFIED: Color = Color::from_rgb(0.25, 0.60, 1.0);
-/// Location channels; iOS tints them blue.
-pub const GEO: Color = Color::from_rgb(0.40, 0.70, 1.0);
+/// Primary signal: presence, selection, the send action.
+pub const GREEN: Color = Color::from_rgb(0.357, 0.890, 0.541);
+/// Borders and quiet signal surfaces.
+pub const GREEN_DIM: Color = Color::from_rgb(0.176, 0.420, 0.286);
+/// Selected labels and code text: a soft mint, close to white.
+pub const GREEN_SOFT: Color = Color::from_rgb(0.851, 0.965, 0.886);
+/// Body copy.
+pub const TEXT: Color = Color::from_rgb(0.910, 0.933, 0.918);
+/// Secondary copy.
+pub const GRAY: Color = Color::from_rgb(0.604, 0.655, 0.620);
+/// Tertiary labels and placeholders.
+pub const MUTED: Color = Color::from_rgb(0.427, 0.490, 0.447);
+/// The app canvas.
+pub const BG: Color = Color::from_rgb(0.039, 0.051, 0.043);
+/// Bars and the sidebar, a step up from the canvas.
+pub const BG_SIDE: Color = Color::from_rgb(0.055, 0.071, 0.059);
+/// Raised surfaces: rows, the composer, chips.
+pub const BG_ROW: Color = Color::from_rgb(0.082, 0.102, 0.086);
+/// Selected rows and picked messages.
+pub const BG_ROW_SEL: Color = Color::from_rgb(0.102, 0.145, 0.118);
+pub const DIVIDER: Color = Color::from_rgb(0.141, 0.173, 0.153);
+pub const ALERT: Color = Color::from_rgb(0.949, 0.427, 0.427);
+pub const WARN: Color = Color::from_rgb(0.949, 0.722, 0.294);
+/// Our own lines keep the warm counterpoint.
+pub const ORANGE: Color = Color::from_rgb(1.0, 0.643, 0.357);
+pub const GOLD: Color = Color::from_rgb(0.902, 0.773, 0.416);
+pub const VERIFIED: Color = Color::from_rgb(0.490, 0.722, 1.0);
+/// Location channels keep their blue.
+pub const GEO: Color = Color::from_rgb(0.490, 0.722, 1.0);
+
+/// Fenced code cards.
+pub const CODE_BG: Color = Color::from_rgb(0.047, 0.066, 0.055);
+pub const CODE_KEYWORD: Color = Color::from_rgb(0.941, 0.690, 0.447);
+pub const CODE_STRING: Color = Color::from_rgb(0.659, 0.902, 0.690);
+pub const CODE_COMMENT: Color = Color::from_rgb(0.373, 0.447, 0.400);
+pub const CODE_NUMBER: Color = Color::from_rgb(0.549, 0.784, 1.0);
+pub const CODE_FUNCTION: Color = Color::from_rgb(0.502, 0.890, 0.831);
 
 /// Orange (hue ~30 deg) is reserved for us, so peers never get it.
 const RESERVED_HUE: f32 = 30.0;
 const RESERVED_DELTA: f32 = 18.0;
 const HUE_SLOTS: u32 = 36;
 
-/// Stable per-peer nickname color, like iOS `MinimalDistancePalette`
-/// (dark mode: saturation 0.80, brightness 0.75).
+/// Stable per-peer nickname color, like iOS `MinimalDistancePalette` but
+/// pulled back to a calmer dark-mode saturation.
 pub fn peer_color(seed: &str) -> Color {
     let allowed: Vec<f32> = (0..HUE_SLOTS)
         .map(|i| i as f32 * 360.0 / HUE_SLOTS as f32)
         .filter(|h| (h - RESERVED_HUE).abs() > RESERVED_DELTA)
         .collect();
     let hash = seed.bytes().fold(0x811c_9dc5_u32, |h, b| (h ^ b as u32).wrapping_mul(0x0100_0193));
-    hsb(allowed[hash as usize % allowed.len()], 0.80, 0.75)
+    hsb(allowed[hash as usize % allowed.len()], 0.62, 0.82)
 }
 
 fn hsb(hue: f32, saturation: f32, brightness: f32) -> Color {
@@ -55,15 +78,15 @@ fn hsb(hue: f32, saturation: f32, brightness: f32) -> Color {
 
 pub fn application() -> Theme {
     Theme::custom(
-        String::from("bitchat-matrix"),
-        iced::theme::Palette { background: BG, text: GREEN, primary: GREEN, success: GREEN, danger: ALERT },
+        String::from("ghostchat"),
+        iced::theme::Palette { background: BG, text: TEXT, primary: GREEN, success: GREEN, danger: ALERT },
     )
 }
 
 pub fn sidebar(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Background::Color(BG_SIDE)),
-        text_color: Some(GREEN),
+        text_color: Some(TEXT),
         border: Border { color: DIVIDER, width: 1.0, radius: 0.0.into() },
         shadow: Shadow::default(),
     }
@@ -72,19 +95,25 @@ pub fn sidebar(_theme: &Theme) -> container::Style {
 pub fn main_pane(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Background::Color(BG)),
-        text_color: Some(GREEN),
+        text_color: Some(TEXT),
         border: Border::default(),
         shadow: Shadow::default(),
     }
 }
 
+/// Full-width bars: top chrome, conversation headers, composer and sheets.
 pub fn header_bar(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Background::Color(BG_SIDE)),
-        text_color: Some(GREEN),
-        border: Border { color: DIVIDER, width: 0.0, radius: 0.0.into() },
+        text_color: Some(TEXT),
+        border: Border { color: DIVIDER, width: 1.0, radius: 0.0.into() },
         shadow: Shadow::default(),
     }
+}
+
+/// A hairline used for day separators and section rules inside the thread.
+pub fn rule(_theme: &Theme) -> container::Style {
+    container::Style { background: Some(Background::Color(DIVIDER)), ..container::Style::default() }
 }
 
 /// Unread-count pill on a conversation row.
@@ -92,7 +121,17 @@ pub fn badge(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Background::Color(GREEN)),
         text_color: Some(BG),
-        border: Border { color: GREEN, width: 0.0, radius: 8.0.into() },
+        border: Border { color: GREEN, width: 0.0, radius: 999.0.into() },
+        shadow: Shadow::default(),
+    }
+}
+
+/// Quiet pill for presence counts and metadata in the top bar.
+pub fn pill(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(BG_ROW)),
+        text_color: Some(GRAY),
+        border: Border { color: DIVIDER, width: 1.0, radius: 999.0.into() },
         shadow: Shadow::default(),
     }
 }
@@ -101,12 +140,14 @@ pub fn badge(_theme: &Theme) -> container::Style {
 pub fn badge_outline(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Background::Color(BG_ROW)),
-        text_color: Some(GREEN),
-        border: Border { color: GREEN, width: 2.0, radius: 12.0.into() },
+        text_color: Some(GREEN_SOFT),
+        border: Border { color: GREEN_DIM, width: 1.0, radius: 10.0.into() },
         shadow: Shadow::default(),
     }
 }
 
+/// Conversation rows: transparent at rest, a quiet surface on hover, and a
+/// selected state that reads by surface rather than by a box.
 pub fn conv_button(selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |_theme: &Theme, status: button::Status| {
         let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
@@ -119,23 +160,39 @@ pub fn conv_button(selected: bool) -> impl Fn(&Theme, button::Status) -> button:
         };
         button::Style {
             background: Some(Background::Color(bg)),
-            text_color: if selected { GREEN_SOFT } else { GREEN },
-            border: Border {
-                color: if selected { GREEN_DIM } else { Color::TRANSPARENT },
-                width: if selected { 1.0 } else { 0.0 },
-                radius: 8.0.into(),
-            },
+            text_color: if selected { GREEN_SOFT } else { TEXT },
+            border: Border { color: Color::TRANSPARENT, width: 0.0, radius: 8.0.into() },
             shadow: Shadow::default(),
         }
     }
 }
 
+/// Quiet action: header buttons, chips and secondary verbs.
 pub fn accent_button(_theme: &Theme, status: button::Status) -> button::Style {
-    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    let (bg, text, border) = match status {
+        button::Status::Hovered | button::Status::Pressed => (BG_ROW, TEXT, DIVIDER),
+        button::Status::Disabled => (Color::TRANSPARENT, MUTED, DIVIDER),
+        _ => (Color::TRANSPARENT, GRAY, Color::TRANSPARENT),
+    };
     button::Style {
-        background: Some(Background::Color(if hovered { GREEN_DIM } else { BG_ROW })),
-        text_color: GREEN_SOFT,
-        border: Border { color: GREEN_DIM, width: 1.0, radius: 8.0.into() },
+        background: Some(Background::Color(bg)),
+        text_color: text,
+        border: Border { color: border, width: 1.0, radius: 6.0.into() },
+        shadow: Shadow::default(),
+    }
+}
+
+/// One filled action per screen: send, copy, the primary verb.
+pub fn primary_button(_theme: &Theme, status: button::Status) -> button::Style {
+    let (bg, text) = match status {
+        button::Status::Hovered | button::Status::Pressed => (GREEN_SOFT, BG),
+        button::Status::Disabled => (BG_ROW, MUTED),
+        _ => (GREEN, BG),
+    };
+    button::Style {
+        background: Some(Background::Color(bg)),
+        text_color: text,
+        border: Border { color: Color::TRANSPARENT, width: 0.0, radius: 8.0.into() },
         shadow: Shadow::default(),
     }
 }
@@ -144,11 +201,95 @@ pub fn composer(_theme: &Theme, status: text_input::Status) -> text_input::Style
     let focused = matches!(status, text_input::Status::Focused);
     text_input::Style {
         background: Background::Color(BG_ROW),
-        border: Border { color: if focused { GREEN } else { GREEN_DIM }, width: 1.0, radius: 8.0.into() },
-        icon: GREEN,
+        border: Border { color: if focused { GREEN_DIM } else { DIVIDER }, width: 1.0, radius: 8.0.into() },
+        icon: GRAY,
         placeholder: MUTED,
-        value: GREEN_SOFT,
+        value: TEXT,
         selection: GREEN_DIM,
+    }
+}
+
+/// The multi-line composer: same box as [`composer`], but scrolls its own
+/// content once a pasted snippet outgrows the fixed height.
+pub fn composer_editor(_theme: &Theme, status: text_editor::Status) -> text_editor::Style {
+    let focused = matches!(status, text_editor::Status::Focused);
+    text_editor::Style {
+        background: Background::Color(BG_ROW),
+        border: Border { color: if focused { GREEN_DIM } else { DIVIDER }, width: 1.0, radius: 10.0.into() },
+        icon: GRAY,
+        placeholder: MUTED,
+        value: TEXT,
+        selection: GREEN_DIM,
+    }
+}
+
+/// A checked message box in select mode.
+pub fn check_on(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(GREEN)),
+        text_color: Some(BG),
+        border: Border { color: GREEN, width: 1.0, radius: 4.0.into() },
+        shadow: Shadow::default(),
+    }
+}
+
+/// An empty message box in select mode.
+pub fn check_off(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(BG_ROW)),
+        text_color: Some(MUTED),
+        border: Border { color: MUTED, width: 1.0, radius: 4.0.into() },
+        shadow: Shadow::default(),
+    }
+}
+
+/// The recording strip that replaces the composer.
+pub fn recording_panel(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(BG_ROW)),
+        text_color: Some(TEXT),
+        border: Border { color: ALERT, width: 1.0, radius: 10.0.into() },
+        shadow: Shadow::default(),
+    }
+}
+
+/// A message row picked in select mode.
+pub fn selected_message(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(BG_ROW_SEL)),
+        text_color: Some(GREEN_SOFT),
+        border: Border { color: GREEN_DIM, width: 1.0, radius: 8.0.into() },
+        shadow: Shadow::default(),
+    }
+}
+
+/// One fenced code block: header (language + copy) and unwrapped code.
+pub fn code_card(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(CODE_BG)),
+        text_color: Some(GREEN_SOFT),
+        border: Border { color: DIVIDER, width: 1.0, radius: 8.0.into() },
+        shadow: Shadow::default(),
+    }
+}
+
+/// A shared file: extension badge, name, one open action.
+pub fn file_card(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(BG_ROW)),
+        text_color: Some(TEXT),
+        border: Border { color: DIVIDER, width: 1.0, radius: 8.0.into() },
+        shadow: Shadow::default(),
+    }
+}
+
+/// The extension badge on a file card, e.g. `IPYNB`.
+pub fn attachment_badge(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(BG_ROW_SEL)),
+        text_color: Some(GREEN_SOFT),
+        border: Border { color: GREEN_DIM, width: 1.0, radius: 5.0.into() },
+        shadow: Shadow::default(),
     }
 }
 
@@ -157,8 +298,8 @@ pub fn chip_button(_theme: &Theme, status: button::Status) -> button::Style {
     let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
     button::Style {
         background: Some(Background::Color(if hovered { BG_ROW_SEL } else { BG_ROW })),
-        text_color: GREEN_SOFT,
-        border: Border { color: GREEN_DIM, width: 1.0, radius: 12.0.into() },
+        text_color: TEXT,
+        border: Border { color: DIVIDER, width: 1.0, radius: 999.0.into() },
         shadow: Shadow::default(),
     }
 }
@@ -167,7 +308,7 @@ pub fn icon_button(_theme: &Theme, status: button::Status) -> button::Style {
     let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
     button::Style {
         background: Some(Background::Color(if hovered { BG_ROW } else { Color::TRANSPARENT })),
-        text_color: GREEN,
+        text_color: if hovered { TEXT } else { GRAY },
         border: Border::default(),
         shadow: Shadow::default(),
     }
@@ -178,10 +319,10 @@ pub fn nick_input(_theme: &Theme, status: text_input::Status) -> text_input::Sty
     let focused = matches!(status, text_input::Status::Focused);
     text_input::Style {
         background: Background::Color(if focused { BG_ROW } else { Color::TRANSPARENT }),
-        border: Border { color: if focused { GREEN_DIM } else { Color::TRANSPARENT }, width: 1.0, radius: 4.0.into() },
-        icon: GREEN,
+        border: Border { color: if focused { GREEN_DIM } else { Color::TRANSPARENT }, width: 1.0, radius: 6.0.into() },
+        icon: GRAY,
         placeholder: MUTED,
-        value: GREEN,
+        value: GREEN_SOFT,
         selection: GREEN_DIM,
     }
 }

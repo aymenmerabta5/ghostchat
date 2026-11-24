@@ -4,12 +4,12 @@
 //! physically there before teleported ones, and us in orange with "(you)".
 //! Clicking a name opens a location DM with them.
 
-use super::view::{BOLD, SYMBOL};
+use super::view::{SANS, SANS_SEMIBOLD, SYMBOL};
 use super::{App, Message};
 use crate::inbox::Conversation;
 use crate::mesh_worker::GeoSighting;
 use crate::theme;
-use iced::widget::{button, row, text};
+use iced::widget::{button, container, row, text};
 use iced::{Alignment, Element, Length};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -145,10 +145,12 @@ impl App {
         let people = self.location.people.people(cell, &self.nickname);
         if people.is_empty() {
             let line = match self.geo_link_state(cell) {
-                Some(state) => format!("  {state}"),
-                None => "  nobody here in the last 5 min".into(),
+                Some(state) => state.to_string(),
+                None => "nobody here in the last 5 min".into(),
             };
-            return vec![text(line).size(12).color(theme::GRAY).into()];
+            return vec![container(text(line).size(10.5).font(SANS).color(theme::MUTED))
+                .padding(iced::Padding { top: 2.0, right: 10.0, bottom: 4.0, left: 10.0 })
+                .into()];
         }
         people.into_iter().map(|p| person_row(cell, p)).collect()
     }
@@ -160,24 +162,24 @@ fn person_row<'a>(cell: &str, person: GeoPerson) -> Element<'a, Message> {
     // iOS: a map pin for people there, a dashed face for teleported ones.
     let (glyph, place) = if person.teleported { ("◌", "teleported") } else { ("⌖", "") };
     let color = if person.mine { theme::ORANGE } else { theme::peer_color(&person.pubkey) };
-    let name = text(person.name).size(14).color(color);
+    let name = text(person.name).size(11.5).font(SANS).color(color);
     let mut line =
-        row![text(glyph).size(12).font(SYMBOL).color(color), if person.mine { name.font(BOLD) } else { name }]
+        row![text(glyph).size(10).font(SYMBOL).color(color), if person.mine { name.font(SANS_SEMIBOLD) } else { name }]
             .spacing(6)
             .align_y(Alignment::Center);
     if person.mine {
-        line = line.push(text("(you)").size(12).color(theme::ORANGE));
+        line = line.push(text("(you)").size(9.5).font(SANS).color(theme::MUTED));
     }
     if !place.is_empty() {
-        line = line.push(text(place).size(10).color(theme::GRAY));
+        line = line.push(text(place).size(9.5).font(SANS).color(theme::MUTED));
     }
     if person.mine {
-        return iced::widget::container(line).padding([2, 10]).into();
+        return container(line).padding([3, 10]).into();
     }
     let conv = Conversation::GeoDm { cell: cell.to_string(), pubkey: person.pubkey };
     button(line)
         .on_press(Message::Select(conv))
-        .padding([2, 10])
+        .padding([3, 10])
         .width(Length::Fill)
         .style(theme::conv_button(false))
         .into()

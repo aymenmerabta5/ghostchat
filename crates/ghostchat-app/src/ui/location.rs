@@ -3,7 +3,7 @@
 //! to any geohash, and the bookmarked list.
 
 use super::geo_people::GeoPeople;
-use super::view::{BOLD, SYMBOL};
+use super::view::{MONO, MONO_SEMIBOLD, SANS, SANS_BOLD, SANS_SEMIBOLD, SYMBOL};
 use super::{App, Message};
 use crate::commands::Command;
 use crate::inbox::Conversation;
@@ -202,7 +202,7 @@ impl App {
             note("chat with people near you using geohash channels. the selected geohash is public and may reveal an approximate area; exact GPS is never shared."),
         ];
         let (tor_line, tor_color) = self.tor_status();
-        items.push(text(tor_line).size(11).color(tor_color).into());
+        items.push(text(tor_line).size(10).line_height(1.5).font(SANS).color(tor_color).into());
         if state.located.is_empty() {
             let label = if state.locating { "finding nearby channels…" } else { "get location and my geohashes" };
             items.push(wide_button(label, (!state.locating).then_some(LocMsg::Locate)));
@@ -238,12 +238,15 @@ impl App {
         }
         if self.social.location_enabled || !state.located.is_empty() {
             items.push(
-                button(container(text("remove location access").size(12).color(theme::GRAY)).center_x(Length::Fill))
-                    .on_press(Message::Location(LocMsg::RemoveAccess))
-                    .padding([6, 10])
-                    .width(Length::Fill)
-                    .style(theme::icon_button)
-                    .into(),
+                button(
+                    container(text("Remove location access").size(9.5).font(SANS).color(theme::MUTED))
+                        .center_x(Length::Fill),
+                )
+                .on_press(Message::Location(LocMsg::RemoveAccess))
+                .padding([6, 10])
+                .width(Length::Fill)
+                .style(theme::icon_button)
+                .into(),
             );
         }
 
@@ -252,10 +255,10 @@ impl App {
 
         if let Some((name, cell)) = self.quick_join() {
             items.push(divider());
-            items.push(text("quick join").size(12).color(theme::GRAY).into());
+            items.push(section("QUICK JOIN"));
             let body = row![
-                text(name.to_string()).size(14).color(theme::GEO).width(Length::Fill),
-                text(format!("#{cell}")).size(12).color(theme::GRAY),
+                text(name.to_string()).size(12).font(SANS).color(theme::GEO).width(Length::Fill),
+                text(format!("#{cell}")).size(10).font(MONO).color(theme::MUTED),
             ]
             .align_y(Alignment::Center);
             items.push(
@@ -270,7 +273,9 @@ impl App {
                 text(format!(
                     "the region channel where people from {name} tend to gather — the wide cell around the main population center, not your location. it's public and well-known, so assume it's watched: quick join saves typing a geohash; it doesn't hide you or bypass blocks."
                 ))
-                .size(11)
+                .size(10)
+                .line_height(1.5)
+                .font(SANS)
                 .color(theme::GRAY)
                 .into(),
             );
@@ -278,7 +283,7 @@ impl App {
 
         if !self.social.bookmarks.is_empty() {
             items.push(divider());
-            items.push(text("bookmarked").size(12).color(theme::GRAY).into());
+            items.push(section("BOOKMARKED"));
             for cell in &self.social.bookmarks {
                 let level = GeoLevel::for_length(cell.len());
                 items.push(self.channel_row(
@@ -292,17 +297,21 @@ impl App {
         }
 
         let head = row![
-            text("#location channels").size(18).font(BOLD).color(theme::GREEN),
+            column![
+                text("#location channels").size(14).font(MONO_SEMIBOLD).color(theme::TEXT),
+                text("Geohash channels over Nostr, plus the Bluetooth mesh").size(9.5).font(SANS).color(theme::MUTED),
+            ]
+            .spacing(3),
             Space::with_width(Length::Fill),
-            button(text("DONE").size(12).font(BOLD))
+            button(text("Done").size(10.5).font(SANS))
                 .on_press(Message::Location(LocMsg::Close))
-                .padding([4, 12])
+                .padding([5, 12])
                 .style(theme::accent_button),
         ]
         .align_y(Alignment::Center);
         column![
-            container(head).padding([10, 18]).width(Length::Fill).style(theme::header_bar),
-            scrollable(container(column(items).spacing(8)).padding([12, 22]).max_width(640))
+            container(head).padding([12, 20]).width(Length::Fill).style(theme::header_bar),
+            scrollable(container(column(items).spacing(8)).padding([16, 24]).max_width(680))
                 .width(Length::Fill)
                 .height(Length::Fill),
         ]
@@ -331,11 +340,14 @@ impl App {
             Conversation::Dm(_) | Conversation::GeoDm { .. } => false,
             Conversation::Group(_) => false,
         };
-        let mut head = row![text(title).size(14).color(color)].spacing(8);
+        let mut head =
+            row![text(title).size(11.5).font(SANS_SEMIBOLD).color(if selected { theme::TEXT } else { color })]
+                .spacing(8)
+                .align_y(Alignment::Center);
         if selected {
-            head = head.push(text("✔").size(14).font(SYMBOL).color(theme::GREEN));
+            head = head.push(text("●").size(6).color(theme::GREEN));
         }
-        let body = column![head, text(subtitle).size(12).color(theme::GRAY)].spacing(2);
+        let body = column![head, text(subtitle).size(9.5).font(SANS).color(theme::MUTED)].spacing(3);
         let mut line = row![button(body)
             .on_press(Message::Location(LocMsg::Join(target.to_string())))
             .padding([6, 10])
@@ -360,23 +372,24 @@ impl App {
         let state = &self.location;
         let valid = is_valid_geohash(&state.teleport_draft);
         let mut col = column![row![
-            text("#").size(14).color(theme::GRAY),
-            text_input("geohash", &state.teleport_draft)
+            text("#").size(12).font(MONO).color(theme::MUTED),
+            text_input("teleport to a geohash", &state.teleport_draft)
                 .on_input(|v| Message::Location(LocMsg::TeleportDraft(v)))
                 .on_submit(Message::Location(LocMsg::Teleport))
-                .size(14)
-                .padding([4, 8])
+                .size(11)
+                .font(MONO)
+                .padding([5, 8])
                 .style(theme::composer),
-            button(text("teleport").size(13))
+            button(text("Teleport").size(10.5).font(SANS))
                 .on_press_maybe(valid.then_some(Message::Location(LocMsg::Teleport)))
-                .padding([4, 12])
+                .padding([5, 12])
                 .style(theme::accent_button),
         ]
-        .spacing(6)
+        .spacing(8)
         .align_y(Alignment::Center)]
-        .spacing(4);
+        .spacing(5);
         if let Some(err) = &state.teleport_error {
-            col = col.push(text(err.clone()).size(12).color(theme::ALERT));
+            col = col.push(text(err.clone()).size(10).font(SANS).color(theme::ALERT));
         }
         col.into()
     }
@@ -392,7 +405,13 @@ fn people_title(label: &str, count: Option<usize>) -> String {
 }
 
 fn note(body: &str) -> Element<'_, Message> {
-    text(body).size(12).color(theme::GRAY).into()
+    text(body).size(10).line_height(1.55).font(SANS).color(theme::GRAY).into()
+}
+
+fn section(label: &'static str) -> Element<'static, Message> {
+    container(text(label).size(8.5).font(SANS_BOLD).color(theme::MUTED))
+        .padding(iced::Padding { top: 10.0, right: 0.0, bottom: 2.0, left: 0.0 })
+        .into()
 }
 
 fn divider<'a>() -> Element<'a, Message> {
@@ -403,16 +422,16 @@ fn divider<'a>() -> Element<'a, Message> {
 }
 
 fn wide_button(label: &str, press: Option<LocMsg>) -> Element<'_, Message> {
-    button(container(text(label).size(12).color(theme::GREEN)).center_x(Length::Fill))
+    button(container(text(label).size(10.5).font(SANS).color(theme::GREEN_SOFT)).center_x(Length::Fill))
         .on_press_maybe(press.map(Message::Location))
-        .padding([6, 10])
+        .padding([7, 10])
         .width(Length::Fill)
         .style(theme::accent_button)
         .into()
 }
 
 fn small_button(label: &str, press: LocMsg) -> Element<'_, Message> {
-    button(text(label).size(12)).on_press(Message::Location(press)).padding([4, 12]).style(theme::accent_button).into()
+    button(text(label).size(10)).on_press(Message::Location(press)).padding([4, 10]).style(theme::accent_button).into()
 }
 
 #[cfg(test)]

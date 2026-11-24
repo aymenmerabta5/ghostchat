@@ -5,7 +5,7 @@
 
 use super::mesh_map::MeshMap;
 use super::panel::{note, setting, toggle};
-use super::view::BOLD;
+use super::view::{MONO, MONO_SEMIBOLD, SANS, SANS_BOLD};
 use super::{App, Message};
 use crate::diag::{human_bytes, human_duration, Snapshot};
 use crate::mesh_worker::Command;
@@ -99,7 +99,7 @@ impl App {
             row![
                 action(if copied { "copied ✓" } else { "copy diagnostics report" }, DebugMsg::CopyReport),
                 action("open log folder", DebugMsg::OpenLogs),
-                button(text("reset Bluetooth").size(12))
+                button(text("Reset Bluetooth").size(10).font(SANS))
                     .on_press(Message::ResetBluetooth)
                     .padding([4, 12])
                     .style(theme::accent_button),
@@ -305,28 +305,31 @@ fn relays_section(s: &Snapshot) -> Vec<Element<'_, Message>> {
 }
 
 fn heading(label: String) -> Element<'static, Message> {
-    container(text(label).size(11).font(BOLD).color(theme::GRAY))
-        .padding(iced::Padding { top: 14.0, ..iced::Padding::ZERO })
+    container(text(label).size(8.5).font(SANS_BOLD).color(theme::MUTED))
+        .padding(iced::Padding { top: 16.0, bottom: 2.0, ..iced::Padding::ZERO })
         .into()
 }
 
 fn note_owned(body: String) -> Element<'static, Message> {
-    text(body).size(12).color(theme::GRAY).into()
+    text(body).size(10.5).line_height(1.5).font(SANS).color(theme::GRAY).into()
 }
 
 fn kv(label: &'static str, value: String) -> Element<'static, Message> {
     row![
-        container(text(label).size(12).color(theme::GRAY)).width(100),
-        text(value).size(12).color(theme::GREEN_SOFT).width(Length::Fill),
+        container(text(label).size(10).font(SANS).color(theme::MUTED)).width(96),
+        text(value).size(10.5).font(MONO).color(theme::GREEN_SOFT).width(Length::Fill),
     ]
     .spacing(8)
     .into()
 }
 
 fn line(title: String, detail: String, control: Option<Element<'static, Message>>) -> Element<'static, Message> {
-    let words = column![text(title).size(13).color(theme::ORANGE), text(detail).size(12).color(theme::GREEN_SOFT)]
-        .spacing(1)
-        .width(Length::Fill);
+    let words = column![
+        text(title).size(11).font(MONO_SEMIBOLD).color(theme::GRAY),
+        text(detail).size(9.5).font(MONO).color(theme::MUTED),
+    ]
+    .spacing(2)
+    .width(Length::Fill);
     let mut line = row![words].spacing(12).align_y(Alignment::Center);
     line = match control {
         Some(control) => line.push(control),
@@ -336,9 +339,9 @@ fn line(title: String, detail: String, control: Option<Element<'static, Message>
 }
 
 fn action(label: &str, msg: DebugMsg) -> Element<'static, Message> {
-    button(text(label.to_string()).size(12))
+    button(text(label.to_string()).size(10).font(SANS))
         .on_press(Message::Debug(msg))
-        .padding([4, 12])
+        .padding([5, 10])
         .style(theme::accent_button)
         .into()
 }

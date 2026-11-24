@@ -11,6 +11,9 @@ const FLAG_SENDER_PEER: u8 = 0x10;
 const FLAG_MENTIONS: u8 = 0x20;
 const FLAG_BRIDGED: u8 = 0x40;
 
+/// Public message bodies are length-prefixed with 16 bits.
+pub const MAX_CONTENT_BYTES: usize = u16::MAX as usize;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatMessage {
     pub id: String,
@@ -72,9 +75,14 @@ impl ChatMessage {
         push_len_str(&mut data, &self.id);
         push_len_str(&mut data, &self.sender);
         let content = self.content.as_bytes();
-        let len = (content.len().min(65535) as u16).to_be_bytes();
-        data.extend_from_slice(&len);
-        data.extend_from_slice(&content[..content.len().min(65535)]);
+        // The length prefix is 16 bits; cutting mid-character would panic and
+        // would also leave the receiver with invalid UTF-8.
+        let mut end = content.len().min(MAX_CONTENT_BYTES);
+        while !self.content.is_char_boundary(end) {
+            end -= 1;
+        }
+        data.extend_from_slice(&(end as u16).to_be_bytes());
+        data.extend_from_slice(&content[..end]);
 
         if let Some(orig) = &self.original_sender {
             push_len_str(&mut data, orig);
@@ -182,4 +190,20 @@ fn read_len_str(data: &[u8], offset: &mut usize) -> Option<String> {
     let s = String::from_utf8_lossy(&data[*offset..*offset + len]).into_owned();
     *offset += len;
     Some(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn long_content_is_cut_on_a_char_boundary() {
+        // One byte short of the cap, then a two-byte character that must not
+        // be split by the 16-bit length prefix.
+        let mut message = ChatMessage::public("me", "", None);
+        message.content = format!("{}é{}", "a".repeat(MAX_CONTENT_BYTES - 1), "b".repeat(10));
+        let decoded = ChatMessage::decode(&message.encode()).expect("roundtrip");
+        assert_eq!(decoded.content.len(), MAX_CONTENT_BYTES - 1);
+        assert!(decoded.content.chars().all(|c| c == 'a'));
+    }
 }
