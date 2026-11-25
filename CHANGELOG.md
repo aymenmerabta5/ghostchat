@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 (unreleased)
+
+**Updates in the app**
+
+- Settings → **UPDATES** shows the running version and checks GitHub Releases for a newer one, quietly at startup and on demand.
+- When a release is available, a chip appears in the top bar and the Settings row offers **Release notes** and **Update**. Update downloads the build for this system, verifies it against the release's `SHA256SUMS.txt`, replaces the running program, and restarts. A failed check or download says what went wrong and can be retried; the quiet startup check stays silent when offline.
+- Checks and downloads take the same route as relays: direct, or through Tor when it is enabled.
+- The Windows zip and the Linux tarball update in place. A system-wide Linux `.deb` cannot be replaced without root, so that case points at the release page instead.
+
 ## 0.2.0 (2026-11-25)
 
 A feature and design release. The Bluetooth mesh and private-message wire formats are unchanged, so 0.2.0 interoperates with 0.1.x and iOS clients as before.

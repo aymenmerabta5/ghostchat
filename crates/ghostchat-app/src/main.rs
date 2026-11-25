@@ -5,6 +5,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod app_dirs;
+mod archive;
 mod autostart;
 mod ble_held;
 mod ble_links;
@@ -55,6 +56,7 @@ mod stay_awake;
 mod theme;
 mod tor_link;
 mod ui;
+mod update;
 mod voice;
 mod wake;
 mod worker_commands;

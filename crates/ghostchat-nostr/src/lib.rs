@@ -7,7 +7,7 @@ pub mod geo;
 pub mod geo_level;
 pub mod geo_probe;
 pub mod geo_sample;
-mod https_get;
+pub mod https_get;
 mod kdf;
 pub mod mailbox;
 mod quick_join_table;

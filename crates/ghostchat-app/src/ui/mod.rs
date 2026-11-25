@@ -47,6 +47,7 @@ use std::time::{Duration, Instant};
 const WINDOW_ICON: &[u8] = include_bytes!("../../../../assets/ghostchat-256.png");
 
 pub fn run_gui(radio: mesh_worker::Radio, nickname: Option<String>, background: bool) -> Result<()> {
+    crate::update::cleanup();
     let icon = window::icon::from_file_data(WINDOW_ICON, None)
         .map_err(|err| tracing::warn!(%err, "window icon unreadable"))
         .ok();
@@ -67,6 +68,8 @@ pub fn run_gui(radio: mesh_worker::Radio, nickname: Option<String>, background: 
 
 struct App {
     handle: Option<MeshHandle>,
+    /// The route relays use; update checks take the same one.
+    transport: Transport,
     nickname: String,
     nick_draft: String,
     peer_id: String,
@@ -277,6 +280,7 @@ impl App {
         let error = boot_error.or(social_error).or(tor_error);
         let mut app = Self {
             handle,
+            transport,
             nickname: String::new(),
             nick_draft: String::new(),
             peer_id: String::new(),
@@ -329,7 +333,16 @@ impl App {
         // Presence heartbeats wait for a fix; without one phones never count us.
         let locate = if app.social.location_enabled { app.start_locating() } else { Task::none() };
         let start = app.start_hidden(background);
-        (app, Task::batch([icons, locate, start, focus_composer()]))
+        // A quiet check after the window is up; a failure stays silent, and
+        // the settings sheet can always ask again.
+        let update = Task::perform(
+            async move {
+                tokio::time::sleep(Duration::from_secs(4)).await;
+                crate::update::check(transport).await
+            },
+            |result| Message::Panel(panel::PanelMsg::Update(panel::UpdateMsg::Checked { manual: false, result })),
+        );
+        (app, Task::batch([icons, locate, start, focus_composer(), update]))
     }
 
     /// Offline roster rows for saved contacts, the Nostr contact list for

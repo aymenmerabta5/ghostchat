@@ -53,6 +53,7 @@ The internet connection is the other path, and each conversation picks one. When
 - 🖥️ **Desktop comforts:** keeps running in the tray, notifications that never show message text, slash commands with completion.
 - 🛡️ **Safety:** QR and fingerprint verification, `/block`, triple-click panic wipe.
 - 📦 **Install or unzip:** a per-user Windows setup, a Linux `.deb`, or a portable folder. Your identity stays in your user account, so upgrades keep your keys.
+- 🔄 **Updates in the app:** Settings → **UPDATES** shows the running version and offers the next release; ghostchat verifies its SHA-256 before replacing itself and restarting.
 - 🔐 **Trustworthy builds:** SHA-256, a provenance JSON and third-party notices beside the program. MIT licensed.
 - ⚠️ **First start on Windows:** the browser and SmartScreen say the publisher is unknown. That is expected for this unsigned build. Check the hash, then continue. Do not turn Defender off.
 
@@ -70,6 +71,8 @@ Closing the window leaves ghostchat running in the notification area, whether it
 Your keys, favorites, and settings stay with your user account, so a newer install does not reset them and a copy of the folder does not carry them to another computer. On Windows that is `%APPDATA%\ghostchat`. On Linux it is `~/.local/share/ghostchat`. Uninstalling keeps that folder on purpose; remove it yourself if you want the identity gone. Logs sit beside that data. **Panic wipe** clears it. **Start at login** is off until you turn it on; that setting is what adds a startup entry. More on the keys: [Honest limits](#honest-limits).
 
 The Windows exe is unsigned. Each archive carries a `.sha256`, a provenance `.json` (git commit, compiler, build time) and `THIRD-PARTY-NOTICES.txt`. What changed and what is known not to work yet: [CHANGELOG.md](CHANGELOG.md).
+
+Settings → **UPDATES** checks GitHub Releases quietly at startup and on demand. When a newer release exists, a chip in the top bar and the same Settings row offer **Update**: ghostchat downloads the build for this system, verifies it against the release's `SHA256SUMS.txt`, replaces the running program, and restarts. The Windows zip and the Linux tarball update in place. A system-wide Linux `.deb` cannot be replaced without root; ghostchat says so and points at the release page, where the new package can be installed with `apt`.
 
 ### ⚠️ First run: the warnings
 

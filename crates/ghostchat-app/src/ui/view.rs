@@ -2,6 +2,7 @@
 //! location channels and people, and the selected conversation's header.
 //! The thread itself is rendered in `thread`.
 
+use super::panel::{PanelMsg, Tab};
 use super::{App, Message};
 use crate::inbox::Conversation;
 use crate::roster::PeerEntry;
@@ -74,6 +75,20 @@ impl App {
             .spacing(6)
             .align_y(Alignment::Center);
             right = right.push(button(label).on_press(Message::OpenUnread).padding([4, 10]).style(theme::chip_button));
+        }
+        if let Some(release) = self.panel.update.pending() {
+            let label = row![
+                text("↑").size(10).color(theme::GREEN),
+                text(format!("{} available", release.version)).size(11).color(theme::TEXT),
+            ]
+            .spacing(5)
+            .align_y(Alignment::Center);
+            right = right.push(
+                button(label)
+                    .on_press(Message::Panel(PanelMsg::Open(Tab::Settings)))
+                    .padding([4, 10])
+                    .style(theme::chip_button),
+            );
         }
         container(
             row![

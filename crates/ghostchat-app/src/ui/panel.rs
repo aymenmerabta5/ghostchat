@@ -5,9 +5,11 @@
 use super::view::{MONO, SANS, SANS_BOLD, SANS_SEMIBOLD, SYMBOL};
 use super::{App, Message};
 use crate::theme;
+use crate::update::{self, Phase};
 use ghostchat_nostr::{add_custom_relay, DM_RELAYS};
 use iced::widget::{button, column, container, row, scrollable, text, text_input, Space};
 use iced::{Alignment, Element, Length, Task};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Tab {
@@ -34,6 +36,17 @@ pub(super) enum PanelMsg {
     Copy(String),
     Verify(super::verify_view::VerifyMsg),
     Tor(super::tor_view::TorMsg),
+    Update(UpdateMsg),
+}
+
+/// The update row in settings: check, download, install and restart.
+#[derive(Debug, Clone)]
+pub(super) enum UpdateMsg {
+    Check,
+    Checked { manual: bool, result: Result<Option<update::Release>, String> },
+    Install,
+    Staged(Result<PathBuf, String>),
+    Installed(Result<PathBuf, String>),
 }
 
 /// Panel state kept on `App`.
@@ -46,6 +59,7 @@ pub(super) struct PanelState {
     pub verify: super::verify_view::VerifyState,
     pub tor: super::tor_view::TorState,
     pub debug: super::debug_view::DebugState,
+    pub update: update::State,
 }
 
 impl App {
@@ -106,8 +120,131 @@ impl App {
             PanelMsg::Copy(value) => return iced::clipboard::write(value),
             PanelMsg::Verify(msg) => return self.on_verify(msg),
             PanelMsg::Tor(msg) => self.on_tor(msg),
+            PanelMsg::Update(msg) => return self.on_update(msg),
         }
         Task::none()
+    }
+
+    fn on_update(&mut self, msg: UpdateMsg) -> Task<Message> {
+        match msg {
+            UpdateMsg::Check => {
+                self.panel.update.phase = Phase::Checking;
+                self.panel.update.error = None;
+                let transport = self.transport;
+                Task::perform(update::check(transport), |result| {
+                    Message::Panel(PanelMsg::Update(UpdateMsg::Checked { manual: true, result }))
+                })
+            }
+            UpdateMsg::Checked { manual, result } => {
+                // A late answer from the startup check must not reset a
+                // download that has already begun.
+                if matches!(self.panel.update.phase, Phase::Downloading | Phase::Ready) {
+                    return Task::none();
+                }
+                let state = &mut self.panel.update;
+                match result {
+                    Ok(Some(release)) => {
+                        // A staged build belongs to the release that was on
+                        // offer; a different release needs its own download.
+                        if state.latest.as_ref().is_some_and(|current| current.version != release.version) {
+                            state.staged = None;
+                        }
+                        state.latest = Some(release);
+                        state.phase = Phase::Available;
+                        state.error = None;
+                    }
+                    Ok(None) => {
+                        state.latest = None;
+                        state.staged = None;
+                        state.phase = Phase::UpToDate;
+                        state.error = None;
+                    }
+                    Err(err) if manual => {
+                        state.phase = Phase::Failed;
+                        state.error = Some(err);
+                    }
+                    // The quiet startup check stays quiet when offline.
+                    Err(_) => {
+                        state.phase = Phase::Idle;
+                        state.error = None;
+                    }
+                }
+                Task::none()
+            }
+            UpdateMsg::Install => {
+                if matches!(self.panel.update.phase, Phase::Downloading | Phase::Ready) {
+                    return Task::none();
+                }
+                if let Some(staged) = self.panel.update.staged.clone() {
+                    return self.apply_update(staged);
+                }
+                let Some(release) = self.panel.update.latest.clone() else {
+                    // The last failure was the check itself; ask again.
+                    return self.on_update(UpdateMsg::Check);
+                };
+                self.panel.update.phase = Phase::Downloading;
+                self.panel.update.error = None;
+                let transport = self.transport;
+                Task::perform(async move { update::stage(&release, transport).await }, |result| {
+                    Message::Panel(PanelMsg::Update(UpdateMsg::Staged(result)))
+                })
+            }
+            UpdateMsg::Staged(result) => match result {
+                Ok(staged) => {
+                    self.panel.update.staged = Some(staged.clone());
+                    self.apply_update(staged)
+                }
+                Err(err) => {
+                    self.panel.update.phase = Phase::Failed;
+                    self.panel.update.error = Some(err);
+                    Task::none()
+                }
+            },
+            UpdateMsg::Installed(result) => match result {
+                Ok(exe) => match crate::relaunch::spawn_exe(&exe) {
+                    Ok(()) => self.quit(),
+                    Err(err) => {
+                        let version = self
+                            .panel
+                            .update
+                            .latest
+                            .as_ref()
+                            .map(|release| release.version.clone())
+                            .unwrap_or_else(|| update::CURRENT.to_string());
+                        let state = &mut self.panel.update;
+                        // The executable is already replaced: another
+                        // install would run against the old image, so offer
+                        // a restart instead of a retry.
+                        state.phase = Phase::Restart;
+                        state.latest = None;
+                        state.staged = None;
+                        state.error = Some(format!(
+                            "ghostchat {version} is installed, but it could not restart itself ({err}). Start it again."
+                        ));
+                        Task::none()
+                    }
+                },
+                Err(err) => {
+                    self.panel.update.phase = Phase::Failed;
+                    self.panel.update.error = Some(err);
+                    Task::none()
+                }
+            },
+        }
+    }
+
+    /// Install a verified executable off the UI thread, then report back so
+    /// the restart happens on the update loop.
+    fn apply_update(&mut self, staged: PathBuf) -> Task<Message> {
+        self.panel.update.phase = Phase::Ready;
+        self.panel.update.error = None;
+        Task::perform(async move { tokio::task::spawn_blocking(move || update::install(&staged)).await }, |result| {
+            let result = match result {
+                Ok(inner) => inner,
+                Err(err) => Err(format!("the update could not finish: {err}")),
+            };
+            Message::Panel(PanelMsg::Update(UpdateMsg::Installed(result)))
+        })
     }
 
     /// The worker streams debug snapshots only while that tab is shown.
@@ -181,6 +318,8 @@ impl App {
             items.push(copy_row("nostr", self.npub.clone(), Some(self.npub.clone())));
         }
         items.push(note(crate::key_protect::Protection::current().describe()));
+        items.push(heading("UPDATES"));
+        items.extend(self.update_section());
         items.push(heading("VERIFY"));
         items.extend(self.verify_section());
         items.push(heading("VOICE"));
@@ -266,6 +405,70 @@ impl App {
         column(items).spacing(8).into()
     }
 
+    fn update_section(&self) -> Vec<Element<'_, Message>> {
+        let state = &self.panel.update;
+        let check = || {
+            button(text("Check").size(10.5).font(SANS))
+                .on_press(Message::Panel(PanelMsg::Update(UpdateMsg::Check)))
+                .padding([5, 12])
+                .style(theme::accent_button)
+                .into()
+        };
+        match state.phase {
+            Phase::Idle => vec![setting(
+                format!("ghostchat {}", update::CURRENT),
+                "check GitHub Releases for a newer version.",
+                Some(check()),
+            )],
+            Phase::Checking => vec![note("checking GitHub Releases…")],
+            Phase::UpToDate => {
+                vec![setting(format!("ghostchat {}", update::CURRENT), "you are on the latest release.", Some(check()))]
+            }
+            Phase::Available => {
+                let release = state.latest.as_ref().expect("an available update has a release");
+                let actions: Element<'_, Message> = row![
+                    button(text("Release notes").size(10.5).font(SANS))
+                        .on_press(Message::OpenUrl(release.page.clone()))
+                        .padding([5, 12])
+                        .style(theme::accent_button),
+                    button(text("Update").size(10.5).font(SANS_BOLD))
+                        .on_press(Message::Panel(PanelMsg::Update(UpdateMsg::Install)))
+                        .padding([5, 12])
+                        .style(theme::accent_button),
+                ]
+                .spacing(8)
+                .into();
+                vec![setting(
+                    format!("ghostchat {} is available", release.version),
+                    "downloads the release, checks its SHA-256, and restarts ghostchat.",
+                    Some(actions),
+                )]
+            }
+            Phase::Downloading => {
+                let version = state.latest.as_ref().map_or("", |release| release.version.as_str());
+                vec![note(format!("downloading ghostchat {version}…"))]
+            }
+            Phase::Ready => vec![note("installing the update and restarting…")],
+            Phase::Restart => {
+                vec![note(state.error.as_deref().unwrap_or("the update is installed. Start ghostchat again."))]
+            }
+            Phase::Failed => {
+                let mut items = vec![note(state.error.as_deref().unwrap_or("the update did not finish."))];
+                items.push(
+                    button(text("Try again").size(10.5).font(SANS))
+                        .on_press(Message::Panel(PanelMsg::Update(UpdateMsg::Install)))
+                        .padding([5, 12])
+                        .style(theme::accent_button)
+                        .into(),
+                );
+                if let Some(release) = state.latest.as_ref() {
+                    items.push(note(format!("latest release: {}", release.version)));
+                }
+                items
+            }
+        }
+    }
+
     fn background_section(&self) -> Vec<Element<'_, Message>> {
         let on_off = |on: bool| if on { "on" } else { "off" };
         let mut items = Vec::new();
@@ -309,7 +512,7 @@ impl App {
 fn info_tab() -> Element<'static, Message> {
     let mut items: Vec<Element<'static, Message>> = vec![heading("FEATURES")];
     for (title, about) in FEATURES {
-        items.push(setting(title, about, None));
+        items.push(setting(*title, about, None));
     }
     items.push(heading("SYMBOLS"));
     for (glyph, color, about) in symbols() {
@@ -324,7 +527,7 @@ fn info_tab() -> Element<'static, Message> {
     }
     items.push(heading("PRIVACY"));
     for (title, about) in PRIVACY {
-        items.push(setting(title, about, None));
+        items.push(setting(*title, about, None));
     }
     items.push(heading("HOW TO USE"));
     for line in HOW_TO {
@@ -403,12 +606,12 @@ fn heading(label: &str) -> Element<'_, Message> {
         .into()
 }
 
-pub(super) fn note(body: &str) -> Element<'_, Message> {
-    text(body).size(10.5).line_height(1.5).font(SANS).color(theme::GRAY).into()
+pub(super) fn note(body: impl Into<String>) -> Element<'static, Message> {
+    text(body.into()).size(10.5).line_height(1.5).font(SANS).color(theme::GRAY).into()
 }
 
 pub(super) fn setting<'a>(
-    title: &'a str,
+    title: impl Into<String>,
     about: &'a str,
     control: Option<Element<'a, Message>>,
 ) -> Element<'a, Message> {
@@ -416,11 +619,11 @@ pub(super) fn setting<'a>(
 }
 
 pub(super) fn setting_with<'a>(
-    title: &'a str,
+    title: impl Into<String>,
     about: Element<'a, Message>,
     control: Option<Element<'a, Message>>,
 ) -> Element<'a, Message> {
-    let words = column![text(title).size(12).font(SANS_SEMIBOLD).color(theme::TEXT), about].spacing(3);
+    let words = column![text(title.into()).size(12).font(SANS_SEMIBOLD).color(theme::TEXT), about].spacing(3);
     match control {
         Some(control) => row![words.width(Length::Fill), control].spacing(16).align_y(Alignment::Center).into(),
         None => words.into(),

@@ -115,7 +115,7 @@ impl App {
     }
 
     /// The process ends right after `iced::exit`, so Bluetooth is released first.
-    fn quit(&self) -> Task<Message> {
+    pub(super) fn quit(&self) -> Task<Message> {
         if let Some(handle) = &self.handle {
             handle.stop();
         }
