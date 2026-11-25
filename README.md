@@ -72,7 +72,7 @@ Your keys, favorites, and settings stay with your user account, so a newer insta
 
 The Windows exe is unsigned. Each archive carries a `.sha256`, a provenance `.json` (git commit, compiler, build time) and `THIRD-PARTY-NOTICES.txt`. What changed and what is known not to work yet: [CHANGELOG.md](CHANGELOG.md).
 
-Settings → **UPDATES** checks GitHub Releases quietly at startup and on demand. When a newer release exists, a chip in the top bar and the same Settings row offer **Update**: ghostchat downloads the build for this system, verifies it against the release's `SHA256SUMS.txt`, replaces the running program, and restarts. The Windows zip and the Linux tarball update in place. A system-wide Linux `.deb` cannot be replaced without root; ghostchat says so and points at the release page, where the new package can be installed with `apt`.
+Settings → **UPDATES** checks GitHub Releases quietly at startup and on demand. When a newer release exists, a chip in the top bar and the same Settings row offer **Update**: ghostchat downloads the build for this system, verifies it against the release's `SHA256SUMS.txt`, replaces the running program, and restarts. Windows installs (setup or zip) and the Linux tarball update in place. A system-wide Linux `.deb` cannot be replaced without root; ghostchat says so and points at the release page, where the new package can be installed with `apt`.
 
 ### ⚠️ First run: the warnings
 
